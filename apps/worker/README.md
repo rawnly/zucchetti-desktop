@@ -1,86 +1,75 @@
-# buste-paga-cf
+# worker
 
-Scarica automaticamente la busta paga del mese corrente dal portale Zucchetti
-(HR Progest) e la salva in un bucket R2 privato. Un Cloudflare Worker
-Effect-native gira il **27 di ogni mese** (06:00 UTC) con
-Browser Rendering (il browser agent di Cloudflare) e notifica via **email
-nativa Cloudflare** (Email Service, binding `send_email`). Zero terze parti.
+A Cloudflare Worker that downloads your monthly payslip from the Zucchetti HR Progest portal, keeps it in a private R2 bucket, and emails it to you. It also exposes a small authenticated API, which the [desktop app](../desktop) uses.
 
-## Setup
+It is Effect-native and deployed with [Alchemy](https://alchemy.run). It uses Cloudflare Browser Rendering to drive the portal, and Cloudflare's own Email Service to send mail, so there are no third-party services.
 
-```sh
-# 1. vendor: sorgenti pina­ti per SHA (effect + monorepo alchemy)
-vendor install
+## How it runs
 
-# 2. deps
-npm install
+- **Schedule** — a Workflow runs on the 27th of each month at 18:00 Europe/Rome. It is triggered at both 16:00 and 17:00 UTC and skips the one that is not 18:00 in Rome, so daylight saving needs no change.
+- **Steps** — log in to the portal, open *I miei documenti*, click the row `Libro unico di MM-YYYY` for the current month, and read the PDF through the viewer. It then stores it as `busta-YYYY-MM.pdf` in R2 and emails it as an attachment. Each step retries on its own. If the run fails, you get an error email.
+- **Guard** — the portal sometimes serves one month's document for another month's row. The run fails and retries if the PDF is byte-identical to any other month already in R2, and it warns by email if it matches the previous month's.
 
-# 3. secrets nel .env (o nell'ambiente del deploy):
-cp .env.example .env
-```
+## HTTP API
 
-`.env` (mai committato):
+Every route needs the header `x-run-token: <RUN_TOKEN>` (compared in constant time). Without it, or for an unknown route, the worker answers 404.
 
-```
-ZUCCHETTI_USER=...
-ZUCCHETTI_PASS=...
-RUN_TOKEN=...                 # per il trigger manuale POST /run
-MAIL_FROM=buste-paga@mail.<tuo-dominio>   # dominio su zona Cloudflare
-MAIL_TO=<tua-email>            # va verificata cliccando l'email di Cloudflare
-```
-
-Serve un account Cloudflare con Workers Paid (Browser Rendering lo richiede):
-`CLOUDFLARE_ACCOUNT_ID` + API token, o login con `wrangler`.
-
-## Comandi
-
-```sh
-npm test        # test di src/ (node:test)
-npm run typecheck
-npm run deploy  # alchemy deploy (stack: R2 privato + Worker + cron)
-```
-
-Trigger manuale (scarica la busta del mese corrente fuori dal cron):
+| Route | Does |
+|---|---|
+| `GET /buste` | `{ items: [{ key, year, month, size, uploaded, etag }] }`, newest first |
+| `GET /buste/:key` | the PDF; `key` must be `busta-YYYY-MM.pdf` |
+| `POST /run[?date=YYYY-MM-DD][&notify=0]` | start a run for the month of `date` (default: now); `notify=0` skips the email |
+| `GET /status/:id` | status of a run started with `POST /run` |
 
 ```sh
 curl -X POST "$WORKER_URL/run" -H "x-run-token: $RUN_TOKEN"
+curl "$WORKER_URL/buste" -H "x-run-token: $RUN_TOKEN"
 ```
 
-## Come funziona
+## Setup
 
-- `alchemy.run.ts` — stack: `Cloudflare.R2.Bucket("BustePaga")` (privato,
-  nessun accesso pubblico) + Worker.
-- `src/worker.ts` — Worker Effect-native. Init: binding browser + bucket,
-  secrets via `Config.Redacted` (al deploy diventano `secret_text`),
-  `Cloudflare.Workers.cron("0 6 27 * *", ...)`.
-- `src/zucchetti.ts` — il flusso con puppeteer: login → menu "Aree
-  applicative" → Workspace → MySpace → "I miei documenti" → click sulla
-  riga `Libro unico di MM-YYYY` del mese corrente → lettura dell'URL del PDF
-  viewer → `fetch` autenticato → bytes.
-- Guard: se il PDF scaricato è byte-identico a quello del mese precedente,
-  l'email di conferma segnala il sospetto (noto problema del portale: può
-  servire lo stesso documento per righe diverse).
-- Email — notifica via **Email Service nativo Cloudflare**: `alchemy.run.ts`
-  crea il `SendingSubdomain` (MX/SPF/DKIM/DMARC automatici) e la `Address`
-  destinataria (da verificare con un click all'ultimo deploy).
+You need a Cloudflare account on **Workers Paid** (Browser Rendering requires it) and a domain on a Cloudflare zone for the sending address.
 
-## Vendoring
+```sh
+npm install
+cp .env.example .env     # then fill it in
+```
 
-`vendor` pina i sorgenti per SHA in `vendor/` (`vendors.lock`):
+| Variable | |
+|---|---|
+| `ZUCCHETTI_USER`, `ZUCCHETTI_PASS` | portal login |
+| `RUN_TOKEN` | secret for the HTTP API; use a long random string |
+| `MAIL_FROM` | sender, on a domain in your Cloudflare zone, e.g. `buste-paga@mail.example.com` |
+| `MAIL_TO` | recipient; Cloudflare emails it a link to verify |
 
-- `effect` → tag `effect@4.1.4`, subdir `packages/effect`
-- `alchemy-repo` → tag `v2.0.0-beta.87` (monorepo completo)
+Authenticate with `CLOUDFLARE_ACCOUNT_ID` and an API token, or log in with `wrangler`. These values become Worker secrets at deploy time.
 
-Le dipendenze si installano dal registry (`npm install`); `vendor/` serve solo
-come sorgente di riferimento. Dopo `vendor update` ricontrolla `tsc`.
+## Commands
 
-Nota TS: serve **TypeScript 6.0.3** (il sorgente effect 4.1.4 non passa
-5.9; alchemy internamente usa tsgo 7.x).
+From the repo root, `mise //apps/worker:<task>`; from this directory, `mise :<task>`.
 
-## Limiti noti
+| Task | |
+|---|---|
+| `deploy` | `alchemy deploy`: the R2 bucket, the sending subdomain and address, the Worker and its cron |
+| `dev` | `alchemy dev` |
+| `typecheck` | `tsc --noEmit` |
+| `test` | unit tests of `src/` |
 
-- Se Zucchetti introduce OTP/SSO sul login, l'automazione si rompe.
-- I selettori sono legati al layout attuale del portale HR Progest
-  (verificato a novembre 2026).
-- La busta del mese è cercata con il nome `Libro unico di MM-YYYY Mensili`;
-  se il datore di lavoro la rinomina, va aggiornato `monthLabel`.
+After the first deploy, verify the recipient address from the email Cloudflare sends.
+
+## Code
+
+- `alchemy.run.ts` — the stack: private R2 bucket `BustePaga`, email sending subdomain and recipient address, the Worker.
+- `src/worker.ts` — the HTTP routes above.
+- `src/workflow.ts` — the scheduled run: download, store, email, and the guards.
+- `src/zucchetti.ts` — the portal flow with puppeteer.
+- `src/busta.ts` — key, label and token helpers (unit tested).
+- `vendor/` — pinned effect and alchemy sources (`vendors.json`), kept only as reference for reading the code. Packages install from npm.
+
+TypeScript must be **6.0.3**; effect 4.1.4 does not compile on 5.9.
+
+## Limits
+
+- If the portal adds OTP or SSO to the login, the automation stops working.
+- The selectors match the portal's layout as of November 2026, and the row name `Libro unico di MM-YYYY Mensili`. If either changes, update `src/zucchetti.ts`.
+- The duplicate guard only catches a document already stored for another month. A wrong document with no copy in R2 is not detected by the worker; the desktop app flags it when the period printed in the PDF does not match the month.
