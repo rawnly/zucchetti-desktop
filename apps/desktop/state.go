@@ -33,12 +33,14 @@ type Platform interface {
 type App struct {
 	mu sync.Mutex // guards panel pointer for background goroutines
 
-	tray     *mygo.Tray
-	panel    *mygo.Window
-	quitting bool
+	tray           *mygo.Tray
+	panel          *mygo.Window
+	quitting       bool
+	stopBackground func()
 
 	// Dependencies (swappable in tests)
 	configPath string
+	cachePath  string
 	secrets    SecretStore
 	platform   Platform
 	httpClient *http.Client
@@ -65,6 +67,7 @@ type App struct {
 	detailsBusy   bool
 	loading       bool
 	hasLoaded     bool
+	cacheLoaded   bool
 	errMsg        string
 	noticeMsg     string
 	noticeIsError bool

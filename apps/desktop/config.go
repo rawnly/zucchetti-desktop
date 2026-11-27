@@ -106,6 +106,42 @@ func loadConfig(path string) (Config, error) {
 	return cfg, nil
 }
 
+func payslipCachePath(configPath string) string {
+	return filepath.Join(filepath.Dir(configPath), "payslips-cache.json")
+}
+
+func loadPayslipCache(path string) ([]Payslip, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var items []Payslip
+	if err := json.Unmarshal(data, &items); err != nil {
+		return nil, err
+	}
+	for _, p := range items {
+		if !IsValidBustaKey(p.Key) {
+			return nil, errors.New("invalid payslip cache")
+		}
+	}
+	return items, nil
+}
+
+func savePayslipCache(path string, items []Payslip) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(items, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, append(data, '\n'), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
 func saveConfig(path string, cfg Config) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err

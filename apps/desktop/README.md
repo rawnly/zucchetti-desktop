@@ -14,10 +14,11 @@ Pick the source in Settings. Everything else works the same with both.
 - **List and download** — payslips newest first, grouped by year. Files are saved as `YYYY-MM.pdf` (e.g. `2026-11.pdf`); older `busta-YYYY-MM.pdf` files in the folder are renamed on first run. A row downloads the PDF into your folder, or opens Quick Look if it is already saved. *Download all* fetches the missing ones.
 - **Re-fetch** — the ↻ button on a row gets that month from the source again and rewrites the local file. With the worker, it makes the worker scrape Zucchetti again, without an email. Use it when a file is wrong.
 - **Fetch latest** — with the portal, lists it and saves the newest payslip if you don't have it. With the worker, starts a worker run for the current month and follows it.
+- **Background check** — while the app is running, checks on launch, every six hours, when the Mac wakes, and when the network returns. The payslip list is cached in `payslips-cache.json` so it appears immediately at startup; newly listed payslips are downloaded automatically, with a notification.
 - **Read the PDF** — saved payslips are parsed on your machine. A row shows the net pay and the period printed in the PDF, and the PTO tab shows the leave left (vacation, PAR and ex-holiday hours) from the newest payslip. A balance is only shown if its numbers add up. If the period in a PDF is not the month of its file name, the row turns red.
 - **PTO** — a calendar tab, reserved for tracking and requesting leave. Requests are not built yet.
 
-Everything the app reads stays on your Mac. It only talks to your worker.
+Payslip PDFs and the list cache stay on your Mac. The app talks either to the Zucchetti portal or to your worker; it does not upload PDFs or extracted text.
 
 ## Setup
 
@@ -77,7 +78,7 @@ If the portal starts asking for a code at sign-in, the app reports that it could
 ## Limits
 
 - The portal source relies on the portal's page structure (menu and frame ids) as of November 2026; if Zucchetti redesigns it, `portal.go` needs updating.
-- It only runs while the app is open on your Mac. With the worker, payslips arrive while the Mac is off.
+- Background checks run while the app is running (enable **Launch at login** in Settings to keep it available). If you quit the app or the Mac is off, only the worker can fetch payslips.
 - Certificazione Unica documents on the portal are not listed yet.
 - macOS only for now. It builds for Linux and Windows through MyGo, but I have only used it on macOS.
 - The PDF parser was written against one employer's payslip layout. A different layout shows nothing rather than a wrong figure.

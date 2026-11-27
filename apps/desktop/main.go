@@ -103,6 +103,38 @@ func (a *App) ready() {
 	}
 
 	a.LoadInitialState()
+	a.startBackgroundRefresh()
+}
+
+// startBackgroundRefresh keeps the tray app out of App Nap and checks for
+// new payslips every six hours, when the network returns, and after sleep.
+func (a *App) startBackgroundRefresh() {
+	ctx, cancel := context.WithCancel(context.Background())
+	release := mygo.Power.KeepRunning("Checking for new Zucchetti payslips")
+	offResume := mygo.Power.OnResume(func() { a.dispatch(a.Refresh) })
+	offNetwork := mygo.Network.OnChanged(func(s mygo.NetworkStatus) {
+		if s.Online {
+			a.dispatch(a.Refresh)
+		}
+	})
+	a.stopBackground = func() {
+		cancel()
+		offResume()
+		offNetwork()
+		release()
+	}
+	go func() {
+		ticker := time.NewTicker(6 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				a.dispatch(a.Refresh)
+			}
+		}
+	}()
 }
 
 func mustConfigPath() string {
@@ -121,7 +153,12 @@ func main() {
 
 	a := NewApp(mustConfigPath(), mygoSecrets{}, desktopPlatform{})
 
-	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { a.quitting = true })
+	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) {
+		a.quitting = true
+		if a.stopBackground != nil {
+			a.stopBackground()
+		}
+	})
 	mygo.App.OnWillQuit(func(*mygo.QuitEvent) {
 		if a.tray != nil {
 			a.tray.Destroy()

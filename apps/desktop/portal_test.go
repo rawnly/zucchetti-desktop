@@ -145,6 +145,28 @@ func TestPortalIsConfiguredByLogin(t *testing.T) {
 	}
 }
 
+func TestRefreshDownloadsOnlyNewPayslipsFromCache(t *testing.T) {
+	items := samplePayslips()
+	f := &fakePortal{items: items}
+	app, main := portalApp(t, f)
+	app.cachePath = filepath.Join(t.TempDir(), "payslips-cache.json")
+	app.cacheLoaded = true
+	app.payslips = items[:1]
+	main.Lock()
+	app.Refresh()
+	main.Unlock()
+	waitFor(t, main, "new payslip download", func() bool {
+		return len(app.downloading) == 0 && app.downloaded[items[1].Key] && app.downloaded[items[2].Key]
+	})
+	if app.downloaded[items[0].Key] {
+		t.Fatal("downloaded a payslip already in the cache")
+	}
+	cached, err := loadPayslipCache(app.cachePath)
+	if err != nil || len(cached) != len(items) {
+		t.Fatalf("cache has %d items, err %v", len(cached), err)
+	}
+}
+
 func TestPortalRefreshAndDownloadAll(t *testing.T) {
 	f := &fakePortal{items: samplePayslips()}
 	app, main := portalApp(t, f)

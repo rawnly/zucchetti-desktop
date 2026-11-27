@@ -5,7 +5,26 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestPayslipCacheRoundTripAndValidation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested", "cache.json")
+	items := []Payslip{{Key: "busta-2026-11.pdf", Year: 2026, Month: 11, Uploaded: time.Date(2026, 11, 27, 15, 23, 0, 0, time.UTC)}}
+	if err := savePayslipCache(path, items); err != nil {
+		t.Fatal(err)
+	}
+	got, err := loadPayslipCache(path)
+	if err != nil || len(got) != 1 || got[0].Key != items[0].Key || !got[0].Uploaded.Equal(items[0].Uploaded) {
+		t.Fatalf("loadPayslipCache() = %#v, %v", got, err)
+	}
+	if err := os.WriteFile(path, []byte(`[{"key":"not-a-payslip.pdf"}]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadPayslipCache(path); err == nil {
+		t.Fatal("expected invalid cache entry to be rejected")
+	}
+}
 
 func TestNormalizeWorkerURL(t *testing.T) {
 	tests := []struct {

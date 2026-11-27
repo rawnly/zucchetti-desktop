@@ -51,6 +51,14 @@ func (a *App) LoadInitialState() {
 	if a.platform != nil {
 		a.launchAtLogin = a.platform.OpenAtLogin()
 	}
+	a.cachePath = payslipCachePath(a.configPath)
+	if items, err := loadPayslipCache(a.cachePath); err == nil {
+		a.payslips = items
+		a.hasLoaded = true
+		a.cacheLoaded = true
+		a.ScanLocalFiles()
+		a.loadDetails()
+	}
 	a.ScanLocalFiles()
 	if a.IsConfigured() {
 		a.Refresh()
@@ -68,6 +76,11 @@ func (a *App) Refresh() {
 	}
 	a.loading = true
 	a.errMsg = ""
+	hadCache := a.cacheLoaded
+	previous := make(map[string]bool, len(a.payslips))
+	for _, p := range a.payslips {
+		previous[p.Key] = true
+	}
 	a.Invalidate()
 	list, limit := a.lister()
 	go func() {
@@ -81,12 +94,41 @@ func (a *App) Refresh() {
 				a.errMsg = err.Error()
 			} else {
 				a.payslips = items
+				if a.cachePath != "" {
+					if err := savePayslipCache(a.cachePath, items); err != nil {
+						a.errMsg = "Could not save payslip cache: " + err.Error()
+					}
+				}
+				a.cacheLoaded = true
 			}
 			a.ScanLocalFiles()
 			a.loadDetails()
+			var added []Payslip
+			if err == nil && hadCache {
+				for _, p := range items {
+					if !previous[p.Key] && !a.downloaded[p.Key] {
+						added = append(added, p)
+					}
+				}
+			}
 			a.Invalidate()
+			if len(added) > 0 {
+				a.downloadNewPayslips(added)
+			}
 		})
 	}()
+}
+
+// downloadNewPayslips downloads only entries newly added to a previously cached list.
+func (a *App) downloadNewPayslips(items []Payslip) {
+	a.notify("new-payslips", "New Zucchetti payslip", fmt.Sprintf("Downloading %d new payslip(s).", len(items)))
+	if a.usesPortal() {
+		a.portalSave(items, a.downloading, true)
+		return
+	}
+	for _, p := range items {
+		a.Download(p)
+	}
 }
 
 // Download saves one payslip into the download folder in the background.
