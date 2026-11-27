@@ -3,11 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test --experimental-strip-types src/ scripts/",
+    "test": "node --test --experimental-strip-types src/",
     "dev": "alchemy dev",
     "deploy": "alchemy deploy",
-    "typecheck": "tsc --noEmit",
-    "sync:vendor": "node scripts/sync-vendor.mjs"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@alchemy.run/cloudflare": "2.0.0-beta.87",

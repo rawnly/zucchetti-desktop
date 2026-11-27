@@ -12,7 +12,7 @@ nativa Cloudflare** (Email Service, binding `send_email`). Zero terze parti.
 # 1. vendor: sorgenti pina­ti per SHA (effect + monorepo alchemy)
 vendor install
 
-# 2. deps (il preinstall patcha i manifest vendorati, vedi sotto)
+# 2. deps
 npm install
 
 # 3. secrets nel .env (o nell'ambiente del deploy):
@@ -35,7 +35,7 @@ Serve un account Cloudflare con Workers Paid (Browser Rendering lo richiede):
 ## Comandi
 
 ```sh
-npm test        # test sync-vendor (node:test)
+npm test        # test di src/ (node:test)
 npm run typecheck
 npm run deploy  # alchemy deploy (stack: R2 privato + Worker + cron)
 ```
@@ -71,15 +71,8 @@ curl -X POST "$WORKER_URL/run" -H "x-run-token: $RUN_TOKEN"
 - `effect` → tag `effect@4.1.4`, subdir `packages/effect`
 - `alchemy-repo` → tag `v2.0.0-beta.87` (monorepo completo)
 
-I package.json del monorepo alchemy non sono installabili così come sono
-(`workspace:*`, `catalog:`). `scripts/sync-vendor.mjs` (run dal
-`preinstall`) li riscrive in `vendor/` con versioni concrete: la chiusura
-dei pacchetti interni `@alchemy.run/*` parte da alchemy + cloudflare e
-segue sia gli import TS sia le deps `workspace:`. Applica anche le patch ai
-sorgenti (`applyVendorPatch`, testato, idempotente).
-
-Dopo `vendor update`: rilancia `npm install` (il preinstall ri-patcha tutto)
-e ricontrolla `tsc` — le patch possono non applicarsi più.
+Le dipendenze si installano dal registry (`npm install`); `vendor/` serve solo
+come sorgente di riferimento. Dopo `vendor update` ricontrolla `tsc`.
 
 Nota TS: serve **TypeScript 6.0.3** (il sorgente effect 4.1.4 non passa
 5.9; alchemy internamente usa tsgo 7.x).
