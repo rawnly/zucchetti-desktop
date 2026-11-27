@@ -507,7 +507,11 @@ func (a *App) tabPTO(c *ui.Context) {
 		ui.Scroll(c).Grow(1).MinHeight(0).Children(func() {
 			ui.Column(c).Gap(10).Children(func() {
 				a.card(c).Padding(12).Children(func() {
-					ui.Calendar(c.Key("pto-calendar"), &a.ptoDate).Label("PTO calendar")
+					// The grid's cells have a fixed size: center it, and the
+					// header above it takes the grid's width.
+					ui.Column(c).AlignItems(ui.Center).Children(func() {
+						ui.Calendar(c.Key("pto-calendar"), &a.ptoDate).Label("PTO calendar")
+					})
 				})
 				a.card(c).Padding(12).Children(func() {
 					ui.Column(c).Gap(10).Children(func() {
