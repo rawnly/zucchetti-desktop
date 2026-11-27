@@ -1,15 +1,15 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
+import { test } from "node:test";
 import {
+  apexDomain,
   bustaKey,
+  fromDomain,
   isBustaKey,
-  sameBytes,
   parseBustaKey,
   prevBustaKey,
+  sameBytes,
   timingSafeTokenEqual,
   zucchettiLabel,
-  fromDomain,
-  apexDomain,
 } from "./busta.ts";
 
 test("bustaKey deriva la chiave R2 dal mese corrente", () => {
@@ -18,8 +18,14 @@ test("bustaKey deriva la chiave R2 dal mese corrente", () => {
 });
 
 test("prevBustaKey è il mese precedente (anche a cavallo d'anno)", () => {
-  assert.equal(prevBustaKey(new Date("2026-11-27T06:00:00Z")), "busta-2026-10.pdf");
-  assert.equal(prevBustaKey(new Date("2027-01-27T06:00:00Z")), "busta-2026-12.pdf");
+  assert.equal(
+    prevBustaKey(new Date("2026-11-27T06:00:00Z")),
+    "busta-2026-10.pdf",
+  );
+  assert.equal(
+    prevBustaKey(new Date("2027-01-27T06:00:00Z")),
+    "busta-2026-12.pdf",
+  );
 });
 
 test("zucchettiLabel è la riga del portale MM-YYYY del mese corrente", () => {
@@ -28,16 +34,16 @@ test("zucchettiLabel è la riga del portale MM-YYYY del mese corrente", () => {
 });
 
 test("fromDomain estrae il dominio dall'indirizzo mittente", () => {
-  assert.equal(fromDomain("buste-paga@mail.fedevitale.dev"), "mail.fedevitale.dev");
-  assert.equal(fromDomain("noreply@fedevitale.dev"), "fedevitale.dev");
+  assert.equal(fromDomain("buste-paga@mail.example.com"), "mail.example.com");
+  assert.equal(fromDomain("noreply@example.com"), "example.com");
 });
 
 test("fromDomain rifiuta indirizzi senza dominio", () => {
   assert.throws(() => fromDomain("senza-chiocciola"));
 });
 
-test("apexDomain stacca il primo label: mail.fedevitale.dev → fedevitale.dev", () => {
-  assert.equal("fedevitale.dev", apexDomain("mail.fedevitale.dev"));
+test("apexDomain stacca il primo label: mail.example.com → example.com", () => {
+  assert.equal("example.com", apexDomain("mail.example.com"));
 });
 
 test("apexDomain su un dominio già apex restituisce se stesso", () => {
@@ -46,7 +52,10 @@ test("apexDomain su un dominio già apex restituisce se stesso", () => {
 
 test("isBustaKey e parseBustaKey validano le chiavi busta-YYYY-MM.pdf", () => {
   assert.equal(isBustaKey("busta-2026-11.pdf"), true);
-  assert.deepEqual(parseBustaKey("busta-2026-11.pdf"), { year: 2026, month: 11 });
+  assert.deepEqual(parseBustaKey("busta-2026-11.pdf"), {
+    year: 2026,
+    month: 11,
+  });
   assert.equal(isBustaKey("busta-2026-00.pdf"), false);
   assert.equal(isBustaKey("busta-2026-13.pdf"), false);
   assert.equal(isBustaKey("../secret.pdf"), false);
@@ -61,7 +70,16 @@ test("timingSafeTokenEqual confronta token in modo sicuro", async () => {
 });
 
 test("sameBytes confronta il contenuto, non solo la lunghezza", () => {
-  assert.equal(sameBytes(new Uint8Array([1, 2, 3]), new Uint8Array([1, 2, 3])), true);
-  assert.equal(sameBytes(new Uint8Array([1, 2, 3]), new Uint8Array([1, 2, 4])), false);
-  assert.equal(sameBytes(new Uint8Array([1, 2]), new Uint8Array([1, 2, 3])), false);
+  assert.equal(
+    sameBytes(new Uint8Array([1, 2, 3]), new Uint8Array([1, 2, 3])),
+    true,
+  );
+  assert.equal(
+    sameBytes(new Uint8Array([1, 2, 3]), new Uint8Array([1, 2, 4])),
+    false,
+  );
+  assert.equal(
+    sameBytes(new Uint8Array([1, 2]), new Uint8Array([1, 2, 3])),
+    false,
+  );
 });
