@@ -28,6 +28,14 @@ func TestWriteSnapshots(t *testing.T) {
 		name, _ := LocalFileName(k)
 		writePDF(t, filepath.Join(app.cfg.DownloadDir, name), sampleLines)
 	}
+	monthNames := map[int]string{6: "Giugno", 7: "Luglio", 8: "Agosto", 9: "Settembre", 10: "Ottobre", 11: "Novembre"}
+	for _, p := range app.payslips {
+		app.details[p.Key] = PayslipData{
+			Period: monthNames[p.Month] + " 2026", NetCents: int64(260000 + p.Month*2500), HasNet: true,
+			Ferie: &Balance{Remaining: float64(p.Month * 5)}, PAR: &Balance{Remaining: float64(90 - p.Month*4)},
+			ExFs: &Balance{Remaining: float64(30 - p.Month)},
+		}
+	}
 	app.runOnMain = func(fn func()) { fn() }
 	app.ScanLocalFiles()
 	app.loadDetails()
@@ -36,8 +44,9 @@ func TestWriteSnapshots(t *testing.T) {
 		"payslips": func() {},
 		"settings": func() { app.OpenSettings() },
 		"pto":      func() { app.CloseSettings(); app.tab = TabPTO },
+		"trends":   func() { app.CloseSettings(); app.tab = TabTrends },
 	}
-	for _, name := range []string{"payslips", "settings", "pto"} {
+	for _, name := range []string{"payslips", "settings", "pto", "trends"} {
 		shots[name]()
 		tt := ui.NewTester(app.view, 368, 488)
 		tt.Frame()

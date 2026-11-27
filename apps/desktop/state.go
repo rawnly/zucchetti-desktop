@@ -13,6 +13,7 @@ import (
 const (
 	TabPayslips = 0
 	TabPTO      = 1
+	TabTrends   = 2
 )
 
 // Platform abstracts desktop OS actions so view tests and controller tests run headlessly.

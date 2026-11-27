@@ -224,11 +224,13 @@ func eyeSymbol(show bool) string {
 // mainView renders the tab switcher and active tab content.
 func (a *App) mainView(c *ui.Context) {
 	ui.Column(c).Gap(10).Grow(1).MinHeight(0).Children(func() {
-		a.segmented(c, "tabs", &a.tab, "Payslips", "PTO")
+		a.segmented(c, "tabs", &a.tab, "Payslips", "PTO", "Trends")
 
 		switch a.tab {
 		case TabPTO:
 			a.tabPTO(c)
+		case TabTrends:
+			a.tabTrends(c)
 		default:
 			a.tabPayslips(c)
 		}

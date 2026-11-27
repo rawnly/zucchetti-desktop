@@ -96,6 +96,46 @@ func TestUnconfiguredFlow(t *testing.T) {
 	}
 }
 
+func TestTrendMonthsKeepGapsAndRejectMismatchedPeriods(t *testing.T) {
+	app := newTestApp(t)
+	app.payslips = []Payslip{
+		{Key: "busta-2025-01.pdf", Year: 2025, Month: 1},
+		{Key: "busta-2025-03.pdf", Year: 2025, Month: 3},
+		{Key: "busta-2025-04.pdf", Year: 2025, Month: 4},
+	}
+	app.details = map[string]PayslipData{
+		"busta-2025-01.pdf": {Period: "Gennaio 2025", NetCents: 250000, HasNet: true, PAR: &Balance{Remaining: 10}},
+		"busta-2025-03.pdf": {Period: "Aprile 2025", NetCents: 300000, HasNet: true}, // wrong PDF period
+		"busta-2025-04.pdf": {Period: "Aprile 2025", NetCents: 0, HasNet: false},
+	}
+	months := app.trendMonths()
+	if len(months) != 4 || months[0].month != 1 || months[1].month != 2 || months[2].month != 3 || months[3].month != 4 {
+		t.Fatalf("months = %+v, want Jan through Apr with missing slots", months)
+	}
+	if !months[0].hasNet || months[0].net != 2500 || months[0].par == nil || *months[0].par != 10 {
+		t.Fatalf("January chart data = %+v", months[0])
+	}
+	if months[1].hasNet || months[1].ferie != nil || months[1].par != nil || months[1].exFs != nil || months[2].hasNet {
+		t.Fatalf("missing or mismatched months should be chart gaps: %+v %+v", months[1], months[2])
+	}
+}
+
+func TestTrendsTabRendersCharts(t *testing.T) {
+	app := newTestApp(t)
+	app.tab = TabTrends
+	app.payslips = []Payslip{{Key: "busta-2026-11.pdf", Year: 2026, Month: 11}}
+	app.details = map[string]PayslipData{
+		"busta-2026-11.pdf": {Period: "Novembre 2026", NetCents: 301700, HasNet: true, PAR: &Balance{Remaining: 15.6}},
+	}
+	tt := ui.NewTester(app.view, 368, 488)
+	tt.Frame()
+	for _, want := range []string{"Take-home pay", "Leave balances", "PAR"} {
+		if !tt.HasText(want) {
+			t.Errorf("trends view missing %q: %q", want, tt.Texts())
+		}
+	}
+}
+
 func TestPopulatedPayslips(t *testing.T) {
 	app := newTestApp(t)
 	app.cfg.WorkerURL = "https://example.com"
