@@ -62,6 +62,16 @@ func FormatSize(n int64) string {
 	}
 }
 
+// LocalFileName is the name a payslip is saved under, YYYY-MM.pdf, from its
+// worker key busta-YYYY-MM.pdf. It reports false for any other key.
+func LocalFileName(key string) (string, bool) {
+	m := bustaKeyPattern.FindStringSubmatch(key)
+	if m == nil || !IsValidBustaKey(key) {
+		return "", false
+	}
+	return m[1] + "-" + m[2] + ".pdf", true
+}
+
 // IsValidBustaKey checks that key strictly matches busta-YYYY-MM.pdf.
 func IsValidBustaKey(key string) bool {
 	m := bustaKeyPattern.FindStringSubmatch(key)
@@ -172,7 +182,7 @@ func (c *Client) ListPayslips(ctx context.Context) ([]Payslip, error) {
 }
 
 // DownloadPayslip fetches GET /buste/<key>, verifies PDF magic bytes, and writes
-// atomically to destDir/<key>.
+// atomically to destDir/YYYY-MM.pdf.
 func (c *Client) DownloadPayslip(ctx context.Context, key, destDir string) (string, error) {
 	if !IsValidBustaKey(key) {
 		return "", fmt.Errorf("invalid payslip key %q", key)
@@ -208,11 +218,18 @@ func (c *Client) DownloadPayslip(ctx context.Context, key, destDir string) (stri
 		return "", errors.New("server response is not a valid PDF")
 	}
 
-	if err := os.MkdirAll(destDir, 0o755); err != nil {
+	name, _ := LocalFileName(key) // key was validated above
+	return writeFileAtomic(destDir, name, data)
+}
+
+// writeFileAtomic writes data to dir/name through a temp file and a rename,
+// creating dir when needed, so a reader never sees half a PDF.
+func writeFileAtomic(dir, name string, data []byte) (string, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("create download folder: %w", err)
 	}
-	target := filepath.Join(destDir, key)
-	tmp, err := os.CreateTemp(destDir, ".busta-*.tmp")
+	target := filepath.Join(dir, name)
+	tmp, err := os.CreateTemp(dir, ".payslip-*.tmp")
 	if err != nil {
 		return "", fmt.Errorf("create temp file: %w", err)
 	}

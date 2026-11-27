@@ -207,6 +207,13 @@ async function run(opts: ZucchettiOptions): Promise<Busta> {
           (x.textContent || "").includes(gl) && /openDocument/.test(x.getAttribute("onclick") || ""),
       );
       if (!a) return null;
+      // Il portale apre la riga *selezionata*, non quella di cui si clicca il
+      // link, e click() non la seleziona: senza mousedown/mouseup sulla riga
+      // ogni busta tranne la prima apre il documento della prima.
+      const win = a.ownerDocument.defaultView as unknown as typeof globalThis;
+      for (const type of ["mouseover", "mousedown", "mouseup"]) {
+        a.dispatchEvent(new win.MouseEvent(type, { bubbles: true, cancelable: true, view: win as unknown as Window, button: 0 }));
+      }
       (a as HTMLElement).click();
       return a.getAttribute("onclick");
     }, gridLabel);

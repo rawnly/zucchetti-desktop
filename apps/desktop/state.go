@@ -13,6 +13,7 @@ import (
 const (
 	TabPayslips = 0
 	TabPTO      = 1
+	TabTrends   = 2
 )
 
 // Platform abstracts desktop OS actions so view tests and controller tests run headlessly.
@@ -33,12 +34,14 @@ type Platform interface {
 type App struct {
 	mu sync.Mutex // guards panel pointer for background goroutines
 
-	tray     *mygo.Tray
-	panel    *mygo.Window
-	quitting bool
+	tray           *mygo.Tray
+	panel          *mygo.Window
+	quitting       bool
+	stopBackground func()
 
 	// Dependencies (swappable in tests)
 	configPath string
+	cachePath  string
 	secrets    SecretStore
 	platform   Platform
 	httpClient *http.Client
@@ -47,6 +50,10 @@ type App struct {
 	// Persisted settings + Keychain token
 	cfg   Config
 	token string
+	// Zucchetti portal login, from the Keychain.
+	portalUser, portalPass string
+	portalInst             Portal
+	newPortal              func(user, pass string) Portal
 
 	// Navigation
 	tab          int // TabPayslips or TabPTO
@@ -61,6 +68,7 @@ type App struct {
 	detailsBusy   bool
 	loading       bool
 	hasLoaded     bool
+	cacheLoaded   bool
 	errMsg        string
 	noticeMsg     string
 	noticeIsError bool
@@ -74,6 +82,9 @@ type App struct {
 	ptoDate time.Time
 
 	// Inline settings draft fields
+	draftSource     int // 0: portal, 1: worker
+	draftUser       string
+	draftPass       string
 	draftURL        string
 	draftToken      string
 	draftDir        string
@@ -116,15 +127,36 @@ func NewApp(cfgPath string, secrets SecretStore, platform Platform) *App {
 
 // IsConfigured reports whether both WorkerURL and Token are present.
 func (a *App) IsConfigured() bool {
+	if a.usesPortal() {
+		return a.portalUser != "" && a.portalPass != ""
+	}
 	return normalizeWorkerURL(a.cfg.WorkerURL) != "" && a.token != ""
 }
 
-// LocalPath returns the destination path for a payslip in the configured folder.
+// usesPortal reports whether payslips come from the Zucchetti portal. A
+// config without a source is a worker's: that is what earlier versions wrote.
+func (a *App) usesPortal() bool { return a.cfg.Source == SourcePortal }
+
+// portal returns the portal client for the saved login, made once.
+func (a *App) portal() Portal {
+	if a.portalInst == nil {
+		mk := a.newPortal
+		if mk == nil {
+			mk = newWebPortal
+		}
+		a.portalInst = mk(a.portalUser, a.portalPass)
+	}
+	return a.portalInst
+}
+
+// LocalPath returns where a payslip is saved in the configured folder:
+// YYYY-MM.pdf. It is empty for a key that is not a payslip's.
 func (a *App) LocalPath(key string) string {
-	if a.cfg.DownloadDir == "" || !IsValidBustaKey(key) {
+	name, ok := LocalFileName(key)
+	if a.cfg.DownloadDir == "" || !ok {
 		return ""
 	}
-	return filepath.Join(a.cfg.DownloadDir, key)
+	return filepath.Join(a.cfg.DownloadDir, name)
 }
 
 // ScanLocalFiles updates a.downloaded by checking which payslips already exist in cfg.DownloadDir.
@@ -136,6 +168,7 @@ func (a *App) ScanLocalFiles() {
 	if a.cfg.DownloadDir == "" {
 		return
 	}
+	migrateLegacyNames(a.cfg.DownloadDir)
 	for _, p := range a.payslips {
 		path := a.LocalPath(p.Key)
 		if path == "" {
@@ -165,6 +198,12 @@ func (a *App) DownloadedCount() int {
 
 // OpenSettings populates draft fields from current config and shows the inline settings panel.
 func (a *App) OpenSettings() {
+	a.draftSource = 0
+	if !a.usesPortal() {
+		a.draftSource = 1
+	}
+	a.draftUser = a.portalUser
+	a.draftPass = a.portalPass
 	a.draftURL = a.cfg.WorkerURL
 	a.draftToken = a.token
 	a.draftDir = a.cfg.DownloadDir

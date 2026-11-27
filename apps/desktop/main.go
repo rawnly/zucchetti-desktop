@@ -1,8 +1,14 @@
 package main
 
 import (
+	"context"
+	"crypto/md5"
+	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/egoist/mygo"
 )
@@ -97,6 +103,38 @@ func (a *App) ready() {
 	}
 
 	a.LoadInitialState()
+	a.startBackgroundRefresh()
+}
+
+// startBackgroundRefresh keeps the tray app out of App Nap and checks for
+// new payslips every six hours, when the network returns, and after sleep.
+func (a *App) startBackgroundRefresh() {
+	ctx, cancel := context.WithCancel(context.Background())
+	release := mygo.Power.KeepRunning("Checking for new Zucchetti payslips")
+	offResume := mygo.Power.OnResume(func() { a.dispatch(a.Refresh) })
+	offNetwork := mygo.Network.OnChanged(func(s mygo.NetworkStatus) {
+		if s.Online {
+			a.dispatch(a.Refresh)
+		}
+	})
+	a.stopBackground = func() {
+		cancel()
+		offResume()
+		offNetwork()
+		release()
+	}
+	go func() {
+		ticker := time.NewTicker(6 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				a.dispatch(a.Refresh)
+			}
+		}
+	}()
 }
 
 func mustConfigPath() string {
@@ -115,15 +153,75 @@ func main() {
 
 	a := NewApp(mustConfigPath(), mygoSecrets{}, desktopPlatform{})
 
-	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { a.quitting = true })
+	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) {
+		a.quitting = true
+		if a.stopBackground != nil {
+			a.stopBackground()
+		}
+	})
 	mygo.App.OnWillQuit(func(*mygo.QuitEvent) {
 		if a.tray != nil {
 			a.tray.Destroy()
 			a.tray = nil
 		}
 	})
-	mygo.App.WhenReady(a.ready)
+	if len(os.Args) > 1 && os.Args[1] == "--portal-check" {
+		mygo.App.WhenReady(portalCheck)
+	} else {
+		mygo.App.WhenReady(a.ready)
+	}
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// portalCheck signs in to the Zucchetti portal with ZUCCHETTI_USER and
+// ZUCCHETTI_PASS, lists the payslips and saves the newest two into a temp
+// folder, to see that the portal source works end to end:
+//
+//	mise //apps/desktop:portal-check
+func portalCheck() {
+	go func() {
+		code := 0
+		defer func() { mygo.RunOnMain(func() { os.Exit(code) }) }()
+		user, pass := os.Getenv("ZUCCHETTI_USER"), os.Getenv("ZUCCHETTI_PASS")
+		if user == "" || pass == "" {
+			fmt.Println("set ZUCCHETTI_USER and ZUCCHETTI_PASS")
+			code = 2
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		start := time.Now()
+		p := newWebPortal(user, pass)
+		items, err := p.List(ctx)
+		if err != nil {
+			fmt.Println("list failed:", err)
+			code = 1
+			return
+		}
+		fmt.Printf("[%4.0fs] %d payslips, %s to %s\n", time.Since(start).Seconds(), len(items), items[len(items)-1].Key, items[0].Key)
+		for _, it := range []Payslip{items[0], items[len(items)-1]} {
+			fmt.Printf("         %s published %s\n", it.Key, it.Uploaded.Format("2006-01-02 15:04"))
+		}
+		dir, _ := os.MkdirTemp("", "zucchetti-check-")
+		defer os.RemoveAll(dir)
+		take := items[:min(2, len(items))]
+		err = p.Fetch(ctx, take, dir, func(it Payslip, err error) {
+			if err != nil {
+				fmt.Printf("[%4.0fs] %s: FAILED %v\n", time.Since(start).Seconds(), it.Key, err)
+				code = 1
+				return
+			}
+			name, _ := LocalFileName(it.Key)
+			path := filepath.Join(dir, name)
+			b, _ := os.ReadFile(path)
+			d, _ := ExtractPayslip(path)
+			fmt.Printf("[%4.0fs] %s: %d bytes md5=%x period=%q net=%v\n", time.Since(start).Seconds(), name, len(b), md5.Sum(b), d.Period, d.HasNet)
+		})
+		if err != nil {
+			fmt.Println("fetch failed:", err)
+			code = 1
+		}
+	}()
 }

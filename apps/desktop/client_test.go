@@ -272,7 +272,7 @@ func TestDownloadPayslip(t *testing.T) {
 		t.Fatalf("DownloadPayslip() error = %v", err)
 	}
 
-	wantPath := filepath.Join(dest, "busta-2026-11.pdf")
+	wantPath := filepath.Join(dest, "2026-11.pdf")
 	if gotPath != wantPath {
 		t.Errorf("DownloadPayslip() path = %q, want %q", gotPath, wantPath)
 	}
@@ -329,7 +329,7 @@ func TestDownloadPayslipRejectsNonPDF(t *testing.T) {
 	if len(entries) != 0 {
 		t.Errorf("dest dir has %d entries after non-PDF response, want 0: %v", len(entries), entries)
 	}
-	if _, err := os.Stat(filepath.Join(dest, "busta-2026-11.pdf")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dest, "2026-11.pdf")); !os.IsNotExist(err) {
 		t.Errorf("target file exists after non-PDF response (stat err = %v)", err)
 	}
 }

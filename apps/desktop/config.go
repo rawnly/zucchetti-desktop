@@ -13,11 +13,19 @@ import (
 const (
 	configFileName = "config.json"
 	tokenSecretKey = "worker-run-token"
+	userSecretKey  = "zucchetti-user"
+	passSecretKey  = "zucchetti-password"
+
+	// SourcePortal reads payslips from the Zucchetti portal itself;
+	// SourceWorker from a deployed buste-paga worker.
+	SourcePortal = "portal"
+	SourceWorker = "worker"
 )
 
 // Config holds non-secret app preferences stored in PathUserData/config.json.
 // The worker token is stored separately in the OS credential store (Keychain on macOS).
 type Config struct {
+	Source      string `json:"source"`
 	WorkerURL   string `json:"workerUrl"`
 	DownloadDir string `json:"downloadDir"`
 }
@@ -75,6 +83,7 @@ func loadConfig(path string) (Config, error) {
 	cfg := Config{DownloadDir: defaultDownloadDir()}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
+		cfg.Source = SourcePortal // a fresh install
 		return cfg, nil
 	}
 	if err != nil {
@@ -87,7 +96,50 @@ func loadConfig(path string) (Config, error) {
 		cfg.DownloadDir = defaultDownloadDir()
 	}
 	cfg.WorkerURL = normalizeWorkerURL(cfg.WorkerURL)
+	if cfg.Source == "" {
+		// A config from before the portal source had a worker, or nothing.
+		cfg.Source = SourcePortal
+		if cfg.WorkerURL != "" {
+			cfg.Source = SourceWorker
+		}
+	}
 	return cfg, nil
+}
+
+func payslipCachePath(configPath string) string {
+	return filepath.Join(filepath.Dir(configPath), "payslips-cache.json")
+}
+
+func loadPayslipCache(path string) ([]Payslip, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var items []Payslip
+	if err := json.Unmarshal(data, &items); err != nil {
+		return nil, err
+	}
+	for _, p := range items {
+		if !IsValidBustaKey(p.Key) {
+			return nil, errors.New("invalid payslip cache")
+		}
+	}
+	return items, nil
+}
+
+func savePayslipCache(path string, items []Payslip) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(items, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, append(data, '\n'), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 func saveConfig(path string, cfg Config) error {
@@ -137,4 +189,25 @@ func shortenHome(p string) string {
 		return "~" + string(os.PathSeparator) + strings.TrimPrefix(p, prefix)
 	}
 	return p
+}
+
+// migrateLegacyNames renames payslips saved as busta-YYYY-MM.pdf to
+// YYYY-MM.pdf, which earlier versions of the app used. A file is never
+// overwritten: if the new name exists, the old one stays.
+func migrateLegacyNames(dir string) {
+	old, err := filepath.Glob(filepath.Join(dir, "busta-????-??.pdf"))
+	if err != nil {
+		return
+	}
+	for _, path := range old {
+		name, ok := LocalFileName(filepath.Base(path))
+		if !ok {
+			continue
+		}
+		target := filepath.Join(dir, name)
+		if _, err := os.Stat(target); err == nil {
+			continue
+		}
+		_ = os.Rename(path, target)
+	}
 }
