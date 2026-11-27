@@ -1,0 +1,23 @@
+[tools]
+go = "1.27.3"
+
+[tasks.dev]
+description = "Run the menu bar app with live reload"
+run = "go tool mygo dev"
+
+[tasks.build]
+description = "Package Zucchetti.app and the .dmg into build/"
+run = "go tool mygo build"
+
+[tasks.open]
+description = "Build, then open the packaged app"
+depends = [":build"]
+run = "open build/darwin-arm64/Zucchetti.app"
+
+[tasks.test]
+description = "Vet and test (views run headless)"
+run = ["go vet ./...", "go test ./..."]
+
+[tasks.doctor]
+description = "Check the machine has what MyGo needs"
+run = "go tool mygo doctor"

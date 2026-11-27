@@ -1,0 +1,21 @@
+[tools]
+node = "26.13.0"
+
+[tasks.dev]
+description = "alchemy dev"
+run = "npm run dev"
+
+[tasks.typecheck]
+description = "tsc --noEmit"
+run = "npm run typecheck"
+
+# scripts/sync-vendor.test.mjs has stray text in it and does not parse, so
+# `npm test` fails; run the source tests only.
+[tasks.test]
+description = "Unit tests of src/"
+depends = [":typecheck"]
+run = "node --test --experimental-strip-types src/"
+
+[tasks.deploy]
+description = "alchemy deploy (stack: R2 + Worker + cron)"
+run = "npm run deploy"

@@ -1,50 +1,9 @@
-[tools]
-node = "26.13.0"
-go = "1.27.3"
+monorepo_root = true
 
-# desktop: the macOS menu bar app (Go, MyGo native UI)
-[tasks."desktop:dev"]
-description = "Run the menu bar app with live reload"
-dir = "apps/desktop"
-run = "go tool mygo dev"
+[monorepo]
+config_roots = ["apps/*"]
 
-[tasks."desktop:build"]
-description = "Package Zucchetti.app and the .dmg into apps/desktop/build/"
-dir = "apps/desktop"
-run = "go tool mygo build"
-
-[tasks."desktop:open"]
-description = "Build, then open the packaged app"
-depends = ["desktop:build"]
-dir = "apps/desktop"
-run = "open build/darwin-arm64/Zucchetti.app"
-
-[tasks."desktop:test"]
-description = "Vet and test the app (views run headless)"
-dir = "apps/desktop"
-run = ["go vet ./...", "go test ./..."]
-
-# worker: the Cloudflare Worker that downloads payslips into R2
-[tasks."worker:test"]
-description = "Unit tests"
-dir = "apps/worker"
-run = "npm test"
-
-[tasks."worker:typecheck"]
-description = "tsc --noEmit"
-dir = "apps/worker"
-run = "npm run typecheck"
-
-[tasks."worker:dev"]
-description = "alchemy dev"
-dir = "apps/worker"
-run = "npm run dev"
-
-[tasks."worker:deploy"]
-description = "alchemy deploy (stack: R2 + Worker + cron)"
-dir = "apps/worker"
-run = "npm run deploy"
-
-[tasks.test]
-description = "Everything that can run without secrets"
-depends = ["desktop:test", "worker:typecheck"]
+# Run from anywhere in the repo:
+#   mise //apps/desktop:dev     mise //apps/worker:deploy
+#   mise //...:test             (every project)
+#   mise :test                  (the project of the current directory)
