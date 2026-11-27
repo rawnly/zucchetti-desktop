@@ -437,8 +437,11 @@ func (a *App) payslipsList(c *ui.Context) {
 	default:
 		ui.Scroll(c).Fill().Children(func() {
 			ui.Column(c).Children(func() {
-				for i, p := range a.payslips {
-					a.payslipRow(c, p, i == len(a.payslips)-1)
+				for _, g := range payslipYears(a.payslips) {
+					a.yearHeader(c, g)
+					for i, p := range g.items {
+						a.payslipRow(c, p, i == len(g.items)-1)
+					}
 				}
 			})
 		})
@@ -457,7 +460,7 @@ func (a *App) payslipRow(c *ui.Context, p Payslip, last bool) {
 		}
 		left := ui.ButtonBase(c).Grow(1).MinWidth(0).Justify(ui.Start).Label(actionLabel).Children(func() {
 			ui.Column(c).Justify(ui.Center).AlignItems(ui.Start).Children(func() {
-				ui.Text(c, p.Title()).FontSize(13).FontWeight(500).TextColor(ui.Hex("#f2f2f2")).NoWrap().TextAlign(ui.Start)
+				ui.Text(c, p.MonthName()).FontSize(13).FontWeight(500).TextColor(ui.Hex("#f2f2f2")).NoWrap().TextAlign(ui.Start)
 				sub := ui.Hex("#7a7a7a")
 				if a.periodMismatch(p) {
 					sub = ui.Hex("#ff6b81")
@@ -466,7 +469,7 @@ func (a *App) payslipRow(c *ui.Context, p Payslip, last bool) {
 					FontSize(11).
 					TextColor(sub).
 					FontFeatures("tnum").
-					NoWrap().TextAlign(ui.Start)
+					SingleLine().TextAlign(ui.Start)
 			})
 		})
 		if left.Clicked() {
@@ -544,7 +547,7 @@ func (a *App) tabPTO(c *ui.Context) {
 // has been read, else its size and upload date.
 func (a *App) rowSubtitle(p Payslip) string {
 	if a.periodMismatch(p) {
-		return "Contains " + a.details[p.Key].Period + ", not " + p.Title()
+		return "PDF is " + a.details[p.Key].Period + ", not " + p.MonthName()
 	}
 	if d, ok := a.details[p.Key]; ok && d.HasNet {
 		s := "€" + d.Net() + " net"
@@ -618,4 +621,43 @@ func (a *App) periodMismatch(p Payslip) bool {
 	}
 	y, m, ok := d.PeriodYM()
 	return ok && (y != p.Year || m != p.Month)
+}
+
+type yearGroup struct {
+	year  int
+	items []Payslip
+}
+
+// payslipYears splits payslips, newest first, into one group per year, in
+// the order they come. A payslip without a year gets a group of year 0.
+func payslipYears(items []Payslip) []yearGroup {
+	var out []yearGroup
+	for _, p := range items {
+		if n := len(out); n == 0 || out[n-1].year != p.Year {
+			out = append(out, yearGroup{year: p.Year})
+		}
+		out[len(out)-1].items = append(out[len(out)-1].items, p)
+	}
+	return out
+}
+
+// yearHeader is the line above a year's payslips: the year, and how many of
+// them are saved.
+func (a *App) yearHeader(c *ui.Context, g yearGroup) {
+	saved := 0
+	for _, p := range g.items {
+		if a.downloaded[p.Key] {
+			saved++
+		}
+	}
+	title := "Other"
+	if g.year > 0 {
+		title = fmt.Sprintf("%d", g.year)
+	}
+	ui.Row(c).AlignItems(ui.Center).Padding(10, 12, 6, 12).Children(func() {
+		ui.Text(c, title).FontSize(12).FontWeight(600).FontFeatures("tnum").TextColor(ui.Hex("#a8a8a8")).Grow(1)
+		ui.Text(c, fmt.Sprintf("%d of %d saved", saved, len(g.items))).
+			FontSize(11).FontFeatures("tnum").TextColor(ui.Hex("#7a7a7a"))
+	})
+	ui.Divider(c).Height(1).Background(ui.Hex("#242424"))
 }

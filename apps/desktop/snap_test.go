@@ -25,7 +25,8 @@ func TestWriteSnapshots(t *testing.T) {
 		app.payslips = append(app.payslips, Payslip{Key: fmt.Sprintf("busta-2026-%02d.pdf", m), Year: 2026, Month: m, Size: int64(140000 - i*1000), Uploaded: time.Date(2026, time.Month(m), 27, 0, 0, 0, 0, time.UTC)})
 	}
 	for _, k := range []string{"busta-2026-10.pdf", "busta-2026-11.pdf"} {
-		writePDF(t, filepath.Join(app.cfg.DownloadDir, k), sampleLines)
+		name, _ := LocalFileName(k)
+		writePDF(t, filepath.Join(app.cfg.DownloadDir, name), sampleLines)
 	}
 	app.runOnMain = func(fn func()) { fn() }
 	app.ScanLocalFiles()

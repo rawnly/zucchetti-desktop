@@ -115,7 +115,7 @@ func TestPopulatedPayslips(t *testing.T) {
 	tt := ui.NewTester(app.view, 368, 488)
 	tt.Frame()
 
-	if !tt.HasText("November 2026") {
+	if !tt.HasText("November") {
 		t.Fatal("expected newest payslip title")
 	}
 	if !tt.HasText("Download all (2)") {

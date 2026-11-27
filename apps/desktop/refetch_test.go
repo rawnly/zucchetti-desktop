@@ -87,7 +87,7 @@ func TestRefetchRewritesFile(t *testing.T) {
 	defer srv.Close()
 
 	dir := t.TempDir()
-	old := filepath.Join(dir, "busta-2026-10.pdf")
+	old := filepath.Join(dir, "2026-10.pdf")
 	os.WriteFile(old, []byte("%PDF-1.4 stale"), 0o600)
 
 	app := newTestApp(t)
@@ -126,7 +126,7 @@ func TestRefetchRewritesFile(t *testing.T) {
 
 func TestQuickLookAndRefetchButtons(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "busta-2026-11.pdf"), []byte("%PDF-1.4"), 0o600)
+	os.WriteFile(filepath.Join(dir, "2026-11.pdf"), []byte("%PDF-1.4"), 0o600)
 	app := newTestApp(t)
 	app.cfg = Config{WorkerURL: "https://example.com", DownloadDir: dir}
 	app.token = "t"
@@ -142,7 +142,7 @@ func TestQuickLookAndRefetchButtons(t *testing.T) {
 		t.Fatal(err)
 	}
 	fp := app.platform.(*fakePlatform)
-	if len(fp.previewed) == 0 || fp.previewed[0] != filepath.Join(dir, "busta-2026-11.pdf") {
+	if len(fp.previewed) == 0 || fp.previewed[0] != filepath.Join(dir, "2026-11.pdf") {
 		t.Errorf("previewed %v", fp.previewed)
 	}
 	if err := tt.Click("Re-fetch November 2026"); err != nil {
@@ -155,7 +155,7 @@ func TestQuickLookAndRefetchButtons(t *testing.T) {
 
 func TestDetailsShowInRowAndPTO(t *testing.T) {
 	dir := t.TempDir()
-	writePDF(t, filepath.Join(dir, "busta-2026-11.pdf"), sampleLines)
+	writePDF(t, filepath.Join(dir, "2026-11.pdf"), sampleLines)
 	app := newTestApp(t)
 	var main sync.Mutex
 	app.runOnMain = func(fn func()) { main.Lock(); defer main.Unlock(); fn() }
@@ -205,11 +205,71 @@ func TestPeriodMismatchWarning(t *testing.T) {
 	}
 	tt := ui.NewTester(app.view, 368, 488)
 	tt.Frame()
-	if !tt.HasText("Contains Ottobre 2026, not November 2026") {
+	if !tt.HasText("PDF is Ottobre 2026, not November") {
 		t.Errorf("warning missing: %q", tt.Texts())
 	}
 	app.details[p.Key] = PayslipData{Period: "Novembre 2026", HasNet: true, NetCents: 301700}
 	if app.periodMismatch(p) {
 		t.Error("matching period flagged")
+	}
+}
+
+func TestLocalFileName(t *testing.T) {
+	for key, want := range map[string]string{"busta-2026-01.pdf": "2026-01.pdf", "busta-2026-12.pdf": "2026-12.pdf"} {
+		if got, ok := LocalFileName(key); !ok || got != want {
+			t.Errorf("LocalFileName(%q) = %q %v", key, got, ok)
+		}
+	}
+	for _, bad := range []string{"", "2026-01.pdf", "busta-2026-13.pdf", "../busta-2026-01.pdf", "busta-2026-01.pdf/x"} {
+		if _, ok := LocalFileName(bad); ok {
+			t.Errorf("LocalFileName(%q) accepted", bad)
+		}
+	}
+}
+
+func TestMigrateLegacyNames(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) { os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600) }
+	write("busta-2026-10.pdf", "old10")
+	write("busta-2026-11.pdf", "old11")
+	write("2026-11.pdf", "new11") // already there: must not be overwritten
+	write("notes.txt", "x")
+	migrateLegacyNames(dir)
+	read := func(name string) string { b, _ := os.ReadFile(filepath.Join(dir, name)); return string(b) }
+	if read("2026-10.pdf") != "old10" {
+		t.Error("2026-10.pdf not migrated")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "busta-2026-10.pdf")); !os.IsNotExist(err) {
+		t.Error("old name left behind")
+	}
+	if read("2026-11.pdf") != "new11" || read("busta-2026-11.pdf") != "old11" {
+		t.Error("an existing file was overwritten")
+	}
+	if read("notes.txt") != "x" {
+		t.Error("an unrelated file was touched")
+	}
+}
+
+func TestPayslipYearsAndHeaders(t *testing.T) {
+	items := []Payslip{
+		{Key: "busta-2026-11.pdf", Year: 2026, Month: 11}, {Key: "busta-2026-10.pdf", Year: 2026, Month: 10},
+		{Key: "busta-2025-12.pdf", Year: 2025, Month: 12},
+	}
+	g := payslipYears(items)
+	if len(g) != 2 || g[0].year != 2026 || len(g[0].items) != 2 || g[1].year != 2025 || len(g[1].items) != 1 {
+		t.Fatalf("groups %+v", g)
+	}
+	app := newTestApp(t)
+	app.cfg = Config{WorkerURL: "https://example.com", DownloadDir: t.TempDir()}
+	app.token = "t"
+	app.hasLoaded = true
+	app.payslips = items
+	app.downloaded["busta-2026-11.pdf"] = true
+	tt := ui.NewTester(app.view, 368, 488)
+	tt.Frame()
+	for _, want := range []string{"2026", "1 of 2 saved", "2025", "0 of 1 saved", "November", "October"} {
+		if !tt.HasText(want) {
+			t.Errorf("missing %q in %q", want, tt.Texts())
+		}
 	}
 }

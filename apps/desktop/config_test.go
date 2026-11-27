@@ -171,8 +171,8 @@ func TestAppHelpers(t *testing.T) {
 	a.cfg.WorkerURL = "example.com"
 
 	// LocalPath
-	if got := a.LocalPath("busta-2026-11.pdf"); got != filepath.Join(dir, "busta-2026-11.pdf") {
-		t.Errorf("LocalPath(valid) = %q, want %q", got, filepath.Join(dir, "busta-2026-11.pdf"))
+	if got := a.LocalPath("busta-2026-11.pdf"); got != filepath.Join(dir, "2026-11.pdf") {
+		t.Errorf("LocalPath(valid) = %q, want %q", got, filepath.Join(dir, "2026-11.pdf"))
 	}
 	if got := a.LocalPath("../evil.pdf"); got != "" {
 		t.Errorf("LocalPath(invalid) = %q, want empty", got)
@@ -189,10 +189,10 @@ func TestAppHelpers(t *testing.T) {
 		{Key: "busta-2026-10.pdf"},
 		{Key: "busta-2026-09.pdf"},
 	}
-	if err := os.WriteFile(filepath.Join(dir, "busta-2026-11.pdf"), []byte("%PDF-1.4"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "2026-11.pdf"), []byte("%PDF-1.4"), 0o644); err != nil {
 		t.Fatalf("writing downloaded file: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "busta-2026-10.pdf"), nil, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "2026-10.pdf"), nil, 0o644); err != nil {
 		t.Fatalf("writing empty file: %v", err)
 	}
 

@@ -4,7 +4,7 @@ A macOS menu bar app for your Zucchetti payslips. Click the icon to list the pay
 
 ## What it does
 
-- **List and download** — payslips newest first. A row downloads the PDF into your folder, or opens Quick Look if it is already saved. *Download all* fetches the missing ones.
+- **List and download** — payslips newest first, grouped by year. Files are saved as `YYYY-MM.pdf` (e.g. `2026-11.pdf`); older `busta-YYYY-MM.pdf` files in the folder are renamed on first run. A row downloads the PDF into your folder, or opens Quick Look if it is already saved. *Download all* fetches the missing ones.
 - **Re-fetch** — the ↻ button on a row asks the worker to scrape that month from Zucchetti again, without an email, then rewrites the local file. Use it when a file is wrong.
 - **Fetch latest** — starts a worker run for the current month and follows it until it completes.
 - **Read the PDF** — saved payslips are parsed on your machine. A row shows the net pay and the period printed in the PDF, and the PTO tab shows the leave left (vacation, PAR and ex-holiday hours) from the newest payslip. A balance is only shown if its numbers add up. If the period in a PDF is not the month of its file name, the row turns red.

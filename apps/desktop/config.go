@@ -138,3 +138,24 @@ func shortenHome(p string) string {
 	}
 	return p
 }
+
+// migrateLegacyNames renames payslips saved as busta-YYYY-MM.pdf to
+// YYYY-MM.pdf, which earlier versions of the app used. A file is never
+// overwritten: if the new name exists, the old one stays.
+func migrateLegacyNames(dir string) {
+	old, err := filepath.Glob(filepath.Join(dir, "busta-????-??.pdf"))
+	if err != nil {
+		return
+	}
+	for _, path := range old {
+		name, ok := LocalFileName(filepath.Base(path))
+		if !ok {
+			continue
+		}
+		target := filepath.Join(dir, name)
+		if _, err := os.Stat(target); err == nil {
+			continue
+		}
+		_ = os.Rename(path, target)
+	}
+}

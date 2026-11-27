@@ -119,12 +119,14 @@ func (a *App) IsConfigured() bool {
 	return normalizeWorkerURL(a.cfg.WorkerURL) != "" && a.token != ""
 }
 
-// LocalPath returns the destination path for a payslip in the configured folder.
+// LocalPath returns where a payslip is saved in the configured folder:
+// YYYY-MM.pdf. It is empty for a key that is not a payslip's.
 func (a *App) LocalPath(key string) string {
-	if a.cfg.DownloadDir == "" || !IsValidBustaKey(key) {
+	name, ok := LocalFileName(key)
+	if a.cfg.DownloadDir == "" || !ok {
 		return ""
 	}
-	return filepath.Join(a.cfg.DownloadDir, key)
+	return filepath.Join(a.cfg.DownloadDir, name)
 }
 
 // ScanLocalFiles updates a.downloaded by checking which payslips already exist in cfg.DownloadDir.
@@ -136,6 +138,7 @@ func (a *App) ScanLocalFiles() {
 	if a.cfg.DownloadDir == "" {
 		return
 	}
+	migrateLegacyNames(a.cfg.DownloadDir)
 	for _, p := range a.payslips {
 		path := a.LocalPath(p.Key)
 		if path == "" {
