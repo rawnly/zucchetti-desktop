@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -155,40 +156,14 @@ func (a *App) settingsView(c *ui.Context) {
 		// Connection card.
 		a.card(c).Padding(12).Children(func() {
 			ui.Column(c).Gap(12).Children(func() {
-				ui.Column(c).Gap(6).Children(func() {
-					ui.Text(c, "Worker URL").FontSize(11).TextColor(ui.Hex("#7a7a7a"))
-					ui.TextInputBase(c, &a.draftURL).
-						Background(ui.Hex("#141414")).
-						Border(1, ui.Hex("#262626")).
-						Radius(7).
-						Padding(8, 10).
-						TextColor(ui.Hex("#f2f2f2")).
-						Placeholder("https://worker.example.com or http://localhost:8787").
-						Label("Worker URL input").
-						OnChange(func() { a.settingsDirty = true })
-				})
-
-				ui.Column(c).Gap(6).Children(func() {
-					ui.Text(c, "Access token").FontSize(11).TextColor(ui.Hex("#7a7a7a"))
-					ui.Row(c).AlignItems(ui.Center).Gap(6).Children(func() {
-						inp := ui.TextInputBase(c, &a.draftToken).
-							Grow(1).
-							Background(ui.Hex("#141414")).
-							Border(1, ui.Hex("#262626")).
-							Radius(7).
-							Padding(8, 10).
-							TextColor(ui.Hex("#f2f2f2")).
-							Placeholder(" Paste token").
-							Label("Access token input").
-							OnChange(func() { a.settingsDirty = true })
-						if !a.showToken {
-							inp.Password()
-						}
-						a.iconButton(c, eyeSymbol(a.showToken), svgEye, 14, "Toggle token visibility", func() {
-							a.showToken = !a.showToken
-						})
-					})
-				})
+				a.segmented(c, "source", &a.draftSource, "Zucchetti portal", "Worker")
+				if a.draftSource == 0 {
+					a.field(c, "Username", "Your Zucchetti username", &a.draftUser, false)
+					a.field(c, "Password", "Your Zucchetti password", &a.draftPass, true)
+				} else {
+					a.field(c, "Worker URL", "https://worker.example.com or http://localhost:8787", &a.draftURL, false)
+					a.field(c, "Access token", "Paste token", &a.draftToken, true)
+				}
 
 				ui.Column(c).Gap(6).Children(func() {
 					ui.Text(c, "Download folder").FontSize(11).TextColor(ui.Hex("#7a7a7a"))
@@ -202,15 +177,17 @@ func (a *App) settingsView(c *ui.Context) {
 					})
 				})
 
-				if a.testConnResult != "" {
+				if a.testingConn {
+					ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
+						ui.Spinner(c).Size(14, 14).TextColor(ui.Hex("#6ea8fe"))
+						ui.Text(c, "Signing in…").FontSize(11).TextColor(ui.Hex("#6ea8fe"))
+					})
+				} else if a.testConnResult != "" {
 					col := ui.Hex("#6ea8fe")
 					if a.testConnIsError {
 						col = ui.Hex("#ff6b81")
 					}
-					ui.Text(c, a.testConnResult).
-						FontSize(11).
-						TextColor(col).
-						LineHeight(1.4)
+					ui.Text(c, a.testConnResult).FontSize(11).TextColor(col).LineHeight(1.4)
 				}
 			})
 		})
@@ -247,29 +224,7 @@ func eyeSymbol(show bool) string {
 // mainView renders the tab switcher and active tab content.
 func (a *App) mainView(c *ui.Context) {
 	ui.Column(c).Gap(10).Grow(1).MinHeight(0).Children(func() {
-		seg := ui.SegmentedBase(c, &a.tab, 2)
-		seg.Track.
-			FillWidth().
-			Padding(3).Gap(3).
-			Background(ui.Hex("#141414")).
-			Border(1, ui.Hex("#262626")).
-			Radius(10).
-			Children(func() {
-				labels := []string{"Payslips", "PTO"}
-				for i, label := range labels {
-					s := seg.Segment(i).
-						Radius(7).
-						Padding(6, 0).
-						FillHeight()
-					if i == a.tab {
-						s.Background(ui.Hex("#2a2a2a")).Border(1, ui.Hex("#383838"))
-					}
-					s.Children(func() {
-						ui.Text(c, label).FontSize(13).FontWeight(500).TextColor(ui.Hex("#f2f2f2")).Center()
-					})
-				}
-			})
-		seg.Track.FillEqually()
+		a.segmented(c, "tabs", &a.tab, "Payslips", "PTO")
 
 		switch a.tab {
 		case TabPTO:
@@ -295,7 +250,7 @@ func (a *App) tabPayslips(c *ui.Context) {
 					label string
 					value string
 				}{
-					{"Archived", fmt.Sprintf("%d", len(a.payslips))},
+					{a.listedLabel(), fmt.Sprintf("%d", len(a.payslips))},
 					{"Saved", fmt.Sprintf("%d", a.DownloadedCount())},
 					{"Latest", latest},
 				}
@@ -413,7 +368,7 @@ func (a *App) payslipsList(c *ui.Context) {
 	switch {
 	case !a.IsConfigured():
 		ui.Column(c).Fill().Center().Gap(12).Children(func() {
-			ui.Text(c, "Connect to buste-paga-cf").
+			ui.Text(c, "Connect to Zucchetti").
 				FontSize(13).
 				TextColor(ui.Hex("#a8a8a8")).
 				Center()
@@ -556,7 +511,14 @@ func (a *App) rowSubtitle(p Payslip) string {
 		}
 		return s
 	}
-	return fmt.Sprintf("%s · %s", FormatSize(p.Size), p.Uploaded.Format("Jan 2"))
+	switch {
+	case p.Size > 0 && !p.Uploaded.IsZero():
+		return fmt.Sprintf("%s · %s", FormatSize(p.Size), p.Uploaded.Format("Jan 2"))
+	case !p.Uploaded.IsZero():
+		return "Published " + p.Uploaded.Format("Jan 2")
+	default:
+		return "Not saved yet"
+	}
 }
 
 type balanceRow struct {
@@ -660,4 +622,66 @@ func (a *App) yearHeader(c *ui.Context, g yearGroup) {
 			FontSize(11).FontFeatures("tnum").TextColor(ui.Hex("#7a7a7a"))
 	})
 	ui.Divider(c).Height(1).Background(ui.Hex("#242424"))
+}
+
+// segmented is the dark segmented control: a track with the chosen segment
+// raised.
+func (a *App) segmented(c *ui.Context, key string, sel *int, labels ...string) {
+	seg := ui.SegmentedBase(c.Key(key), sel, len(labels))
+	seg.Track.
+		FillWidth().
+		Padding(3).Gap(3).
+		Background(ui.Hex("#141414")).
+		Border(1, ui.Hex("#262626")).
+		Radius(10).
+		Children(func() {
+			for i, label := range labels {
+				s := seg.Segment(i).
+					Radius(7).
+					Padding(6, 0).
+					FillHeight()
+				if i == *sel {
+					s.Background(ui.Hex("#2a2a2a")).Border(1, ui.Hex("#383838"))
+				}
+				s.Children(func() {
+					ui.Text(c, label).FontSize(13).FontWeight(500).TextColor(ui.Hex("#f2f2f2")).Center()
+				})
+			}
+		})
+	seg.Track.FillEqually()
+}
+
+// field is a labelled text input in the settings card; secret ones hide
+// their text unless a.showToken is on, with an eye button.
+func (a *App) field(c *ui.Context, label, placeholder string, value *string, secret bool) {
+	ui.Column(c).Gap(6).Children(func() {
+		ui.Text(c, label).FontSize(11).TextColor(ui.Hex("#7a7a7a"))
+		ui.Row(c).AlignItems(ui.Center).Gap(6).Children(func() {
+			in := ui.TextInputBase(c.Key(label), value).
+				Grow(1).
+				Background(ui.Hex("#141414")).
+				Border(1, ui.Hex("#262626")).
+				Radius(7).
+				Padding(8, 10).
+				TextColor(ui.Hex("#f2f2f2")).
+				Placeholder(placeholder).
+				Label(label + " input").
+				OnChange(func() { a.settingsDirty = true })
+			if secret && !a.showToken {
+				in.Password()
+			}
+			if secret {
+				a.iconButton(c, eyeSymbol(a.showToken), svgEye, 14, "Toggle "+strings.ToLower(label)+" visibility", func() {
+					a.showToken = !a.showToken
+				})
+			}
+		})
+	})
+}
+
+func (a *App) listedLabel() string {
+	if a.usesPortal() {
+		return "On portal"
+	}
+	return "Archived"
 }

@@ -218,12 +218,18 @@ func (c *Client) DownloadPayslip(ctx context.Context, key, destDir string) (stri
 		return "", errors.New("server response is not a valid PDF")
 	}
 
-	if err := os.MkdirAll(destDir, 0o755); err != nil {
+	name, _ := LocalFileName(key) // key was validated above
+	return writeFileAtomic(destDir, name, data)
+}
+
+// writeFileAtomic writes data to dir/name through a temp file and a rename,
+// creating dir when needed, so a reader never sees half a PDF.
+func writeFileAtomic(dir, name string, data []byte) (string, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("create download folder: %w", err)
 	}
-	name, _ := LocalFileName(key) // key was validated above
-	target := filepath.Join(destDir, name)
-	tmp, err := os.CreateTemp(destDir, ".busta-*.tmp")
+	target := filepath.Join(dir, name)
+	tmp, err := os.CreateTemp(dir, ".payslip-*.tmp")
 	if err != nil {
 		return "", fmt.Errorf("create temp file: %w", err)
 	}

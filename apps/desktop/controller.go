@@ -45,6 +45,8 @@ func (a *App) LoadInitialState() {
 		} else {
 			a.token = token
 		}
+		a.portalUser, _ = a.secrets.Get(userSecretKey)
+		a.portalPass, _ = a.secrets.Get(passSecretKey)
 	}
 	if a.platform != nil {
 		a.launchAtLogin = a.platform.OpenAtLogin()
@@ -67,11 +69,11 @@ func (a *App) Refresh() {
 	a.loading = true
 	a.errMsg = ""
 	a.Invalidate()
-	client := a.clientFor(a.cfg.WorkerURL, a.token)
+	list, limit := a.lister()
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), limit)
 		defer cancel()
-		items, err := client.ListPayslips(ctx)
+		items, err := list(ctx)
 		a.dispatch(func() {
 			a.loading = false
 			a.hasLoaded = true
@@ -94,6 +96,10 @@ func (a *App) Download(p Payslip) {
 		return
 	}
 	if !a.IsConfigured() || a.downloading[p.Key] || a.quitting {
+		return
+	}
+	if a.usesPortal() {
+		a.portalSave([]Payslip{p}, a.downloading, false)
 		return
 	}
 	a.downloading[p.Key] = true
@@ -136,6 +142,10 @@ func (a *App) DownloadAll() {
 		}
 	}
 	if len(targets) == 0 {
+		return
+	}
+	if a.usesPortal() {
+		a.portalSave(targets, a.downloading, true)
 		return
 	}
 	for _, p := range targets {
@@ -203,6 +213,10 @@ func (a *App) TriggerFetch() {
 		return
 	}
 	if !a.IsConfigured() || a.runningFetch || a.quitting {
+		return
+	}
+	if a.usesPortal() {
+		a.portalFetchLatest()
 		return
 	}
 	a.runningFetch = true
@@ -322,11 +336,20 @@ func (a *App) TestConnection() {
 	a.testConnResult = ""
 	a.testConnIsError = false
 	a.Invalidate()
-	client := a.clientFor(a.draftURL, a.draftToken)
+	list, limit := func() (func(context.Context) ([]Payslip, error), time.Duration) {
+		if a.draftSource == 0 {
+			mk := a.newPortal
+			if mk == nil {
+				mk = newWebPortal
+			}
+			return mk(a.draftUser, a.draftPass).List, 3 * time.Minute
+		}
+		return a.clientFor(a.draftURL, a.draftToken).ListPayslips, 20 * time.Second
+	}()
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), limit)
 		defer cancel()
-		items, err := client.ListPayslips(ctx)
+		items, err := list(ctx)
 		a.dispatch(func() {
 			a.testingConn = false
 			if err != nil {
@@ -349,8 +372,12 @@ func (a *App) SaveSettings() {
 		return
 	}
 	cfg := Config{
+		Source:      SourcePortal,
 		WorkerURL:   normalizeWorkerURL(a.draftURL),
 		DownloadDir: a.draftDir,
+	}
+	if a.draftSource == 1 {
+		cfg.Source = SourceWorker
 	}
 	if cfg.DownloadDir == "" {
 		cfg.DownloadDir = defaultDownloadDir()
@@ -366,9 +393,21 @@ func (a *App) SaveSettings() {
 			a.Invalidate()
 			return
 		}
+		for key, val := range map[string]string{userSecretKey: a.draftUser, passSecretKey: a.draftPass} {
+			if err := a.secrets.Set(key, val); err != nil {
+				a.SetNotice("Could not save the login: "+err.Error(), true)
+				a.Invalidate()
+				return
+			}
+		}
 	}
 	a.cfg = cfg
 	a.token = a.draftToken
+	if a.draftUser != a.portalUser || a.draftPass != a.portalPass {
+		a.portalUser, a.portalPass, a.portalInst = a.draftUser, a.draftPass, nil
+	}
+	a.payslips, a.hasLoaded = nil, false
+	a.details = map[string]PayslipData{}
 	a.CloseSettings()
 	a.ScanLocalFiles()
 	a.SetNotice("Settings saved", false)
@@ -527,6 +566,10 @@ func (a *App) Refetch(p Payslip) {
 	if !a.IsConfigured() || a.quitting || a.runningFetch || len(a.refetching) > 0 || p.Year == 0 {
 		return
 	}
+	if a.usesPortal() {
+		a.portalSave([]Payslip{p}, a.refetching, false)
+		return
+	}
 	a.refetching[p.Key] = true
 	a.Invalidate()
 	client := a.clientFor(a.cfg.WorkerURL, a.token)
@@ -616,4 +659,97 @@ func (a *App) LatestBalances() (Payslip, PayslipData, bool) {
 		}
 	}
 	return Payslip{}, PayslipData{}, false
+}
+
+// lister returns how payslips are listed for the source in use, and how long
+// to wait for it.
+func (a *App) lister() (func(context.Context) ([]Payslip, error), time.Duration) {
+	if a.usesPortal() {
+		return a.portal().List, 3 * time.Minute
+	}
+	return a.clientFor(a.cfg.WorkerURL, a.token).ListPayslips, 20 * time.Second
+}
+
+// portalSave saves payslips from the portal in one session, marking each in
+// busy while it waits. all adds a summary notice.
+func (a *App) portalSave(items []Payslip, busy map[string]bool, all bool) {
+	for _, p := range items {
+		busy[p.Key] = true
+	}
+	a.Invalidate()
+	portal, dir := a.portal(), a.cfg.DownloadDir
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(len(items)+1)*3*time.Minute)
+		defer cancel()
+		saved, failed := 0, 0
+		var firstErr error
+		err := portal.Fetch(ctx, items, dir, func(p Payslip, err error) {
+			a.dispatch(func() {
+				delete(busy, p.Key)
+				if err != nil {
+					failed++
+					if firstErr == nil {
+						firstErr = err
+					}
+				} else {
+					saved++
+					a.downloaded[p.Key] = true
+					delete(a.details, p.Key)
+				}
+				a.Invalidate()
+			})
+		})
+		a.dispatch(func() {
+			if err != nil { // no session: nothing was tried
+				for _, p := range items {
+					delete(busy, p.Key)
+				}
+				a.SetNotice(err.Error(), true)
+			} else if all || failed > 0 {
+				msg := fmt.Sprintf("Saved %d of %d payslips", saved, len(items))
+				if firstErr != nil {
+					msg += " · " + firstErr.Error()
+				}
+				a.SetNotice(msg, failed > 0)
+			} else if len(items) == 1 {
+				a.SetNotice("Saved "+items[0].Title(), false)
+			}
+			a.loadDetails()
+			a.Invalidate()
+		})
+	}()
+}
+
+// portalFetchLatest lists the portal and saves its newest payslip when it is
+// not saved yet.
+func (a *App) portalFetchLatest() {
+	a.runningFetch = true
+	a.fetchStatus = "running"
+	a.errMsg = ""
+	a.Invalidate()
+	portal := a.portal()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+		defer cancel()
+		items, err := portal.List(ctx)
+		a.dispatch(func() {
+			a.runningFetch = false
+			a.fetchStatus = ""
+			a.hasLoaded = true
+			if err != nil {
+				a.errMsg = err.Error()
+				a.Invalidate()
+				return
+			}
+			a.payslips = items
+			a.ScanLocalFiles()
+			if len(items) > 0 && !a.downloaded[items[0].Key] {
+				a.portalSave(items[:1], a.downloading, false)
+			} else {
+				a.SetNotice("Up to date", false)
+			}
+			a.loadDetails()
+			a.Invalidate()
+		})
+	}()
 }

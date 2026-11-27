@@ -5,7 +5,7 @@ Payslips from the Zucchetti HR portal, archived and browsable from the macOS men
 | | |
 |---|---|
 | `apps/worker` | Cloudflare Worker: scrapes the portal on the 27th, stores PDFs in R2, emails them, and serves `GET /buste`, `GET /buste/:key`, `POST /run`, `GET /status/:id` behind the `x-run-token` header. See [its README](apps/worker). |
-| `apps/desktop` | Menu bar app (Go, [MyGo](https://github.com/egoist/mygo) native UI): list, download, re-fetch and Quick Look payslips, and read leave balances from the PDFs. A PTO calendar tab is stubbed in. See [its README](apps/desktop). |
+| `apps/desktop` | Menu bar app (Go, [MyGo](https://github.com/egoist/mygo) native UI): list, download, re-fetch and Quick Look payslips, read leave balances from the PDFs. It signs in to the Zucchetti portal itself, so the worker is optional. A PTO calendar tab is stubbed in. See [its README](apps/desktop). |
 
 ```sh
 mise //apps/desktop:dev      # live-reload the app

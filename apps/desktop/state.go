@@ -47,6 +47,10 @@ type App struct {
 	// Persisted settings + Keychain token
 	cfg   Config
 	token string
+	// Zucchetti portal login, from the Keychain.
+	portalUser, portalPass string
+	portalInst             Portal
+	newPortal              func(user, pass string) Portal
 
 	// Navigation
 	tab          int // TabPayslips or TabPTO
@@ -74,6 +78,9 @@ type App struct {
 	ptoDate time.Time
 
 	// Inline settings draft fields
+	draftSource     int // 0: portal, 1: worker
+	draftUser       string
+	draftPass       string
 	draftURL        string
 	draftToken      string
 	draftDir        string
@@ -116,7 +123,26 @@ func NewApp(cfgPath string, secrets SecretStore, platform Platform) *App {
 
 // IsConfigured reports whether both WorkerURL and Token are present.
 func (a *App) IsConfigured() bool {
+	if a.usesPortal() {
+		return a.portalUser != "" && a.portalPass != ""
+	}
 	return normalizeWorkerURL(a.cfg.WorkerURL) != "" && a.token != ""
+}
+
+// usesPortal reports whether payslips come from the Zucchetti portal. A
+// config without a source is a worker's: that is what earlier versions wrote.
+func (a *App) usesPortal() bool { return a.cfg.Source == SourcePortal }
+
+// portal returns the portal client for the saved login, made once.
+func (a *App) portal() Portal {
+	if a.portalInst == nil {
+		mk := a.newPortal
+		if mk == nil {
+			mk = newWebPortal
+		}
+		a.portalInst = mk(a.portalUser, a.portalPass)
+	}
+	return a.portalInst
 }
 
 // LocalPath returns where a payslip is saved in the configured folder:
@@ -168,6 +194,12 @@ func (a *App) DownloadedCount() int {
 
 // OpenSettings populates draft fields from current config and shows the inline settings panel.
 func (a *App) OpenSettings() {
+	a.draftSource = 0
+	if !a.usesPortal() {
+		a.draftSource = 1
+	}
+	a.draftUser = a.portalUser
+	a.draftPass = a.portalPass
 	a.draftURL = a.cfg.WorkerURL
 	a.draftToken = a.token
 	a.draftDir = a.cfg.DownloadDir

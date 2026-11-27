@@ -21,3 +21,7 @@ run = ["go vet ./...", "go test ./..."]
 [tasks.doctor]
 description = "Check the machine has what MyGo needs"
 run = "go tool mygo doctor"
+
+[tasks.portal-check]
+description = "Sign in to the Zucchetti portal (ZUCCHETTI_USER/ZUCCHETTI_PASS), list payslips, save the newest two to a temp folder"
+run = "go run . --portal-check"

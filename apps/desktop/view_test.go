@@ -81,7 +81,7 @@ func TestUnconfiguredFlow(t *testing.T) {
 	tt := ui.NewTester(app.view, 368, 488)
 	tt.Frame()
 
-	if !tt.HasText("Connect to buste-paga-cf") {
+	if !tt.HasText("Connect to Zucchetti") {
 		t.Fatal("expected unconfigured empty state")
 	}
 	if err := tt.Click("Configure connection"); err != nil {

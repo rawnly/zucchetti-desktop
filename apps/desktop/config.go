@@ -13,11 +13,19 @@ import (
 const (
 	configFileName = "config.json"
 	tokenSecretKey = "worker-run-token"
+	userSecretKey  = "zucchetti-user"
+	passSecretKey  = "zucchetti-password"
+
+	// SourcePortal reads payslips from the Zucchetti portal itself;
+	// SourceWorker from a deployed buste-paga worker.
+	SourcePortal = "portal"
+	SourceWorker = "worker"
 )
 
 // Config holds non-secret app preferences stored in PathUserData/config.json.
 // The worker token is stored separately in the OS credential store (Keychain on macOS).
 type Config struct {
+	Source      string `json:"source"`
 	WorkerURL   string `json:"workerUrl"`
 	DownloadDir string `json:"downloadDir"`
 }
@@ -75,6 +83,7 @@ func loadConfig(path string) (Config, error) {
 	cfg := Config{DownloadDir: defaultDownloadDir()}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
+		cfg.Source = SourcePortal // a fresh install
 		return cfg, nil
 	}
 	if err != nil {
@@ -87,6 +96,13 @@ func loadConfig(path string) (Config, error) {
 		cfg.DownloadDir = defaultDownloadDir()
 	}
 	cfg.WorkerURL = normalizeWorkerURL(cfg.WorkerURL)
+	if cfg.Source == "" {
+		// A config from before the portal source had a worker, or nothing.
+		cfg.Source = SourcePortal
+		if cfg.WorkerURL != "" {
+			cfg.Source = SourceWorker
+		}
+	}
 	return cfg, nil
 }
 
