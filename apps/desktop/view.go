@@ -460,41 +460,124 @@ func (a *App) payslipRow(c *ui.Context, p Payslip, last bool) {
 	}
 }
 
-// tabPTO renders the calendar, overview, and footer for PTO planning.
+// tabPTO renders the leave calendar and request flow.
 func (a *App) tabPTO(c *ui.Context) {
 	ui.Column(c).Gap(10).Grow(1).MinHeight(0).Children(func() {
-		// The cards scroll; the footer stays in view.
 		ui.Scroll(c).Grow(1).MinHeight(0).Children(func() {
 			ui.Column(c).Gap(10).Children(func() {
+				if a.ptoRequestOpen {
+					a.ptoRequestForm(c)
+					return
+				}
 				a.card(c).Padding(12).Children(func() {
-					// The grid's cells have a fixed size: center it, and the
-					// header above it takes the grid's width.
 					ui.Column(c).AlignItems(ui.Center).Children(func() {
 						ui.Calendar(c.Key("pto-calendar"), &a.ptoDate).Label("PTO calendar")
 					})
 				})
 				a.card(c).Padding(12).Children(func() {
 					ui.Column(c).Gap(10).Children(func() {
-						ui.Row(c).AlignItems(ui.Center).Children(func() {
-							ui.Text(c, a.ptoDate.Format("Monday, Jan 2, 2006")).
-								FontSize(14).FontWeight(500).TextColor(ui.Hex("#f2f2f2")).
-								FontFeatures("tnum").Grow(1)
-							ui.Box(c).Padding(4, 10).Radius(999).Background(ui.Hex("#17325c")).Children(func() {
-								ui.Text(c, "Requests soon").FontSize(11).FontWeight(600).TextColor(ui.Hex("#6ea8fe"))
-							})
-						})
+						ui.Text(c, a.ptoDate.Format("Monday, Jan 2, 2006")).
+							FontSize(14).FontWeight(500).TextColor(ui.Hex("#f2f2f2")).FontFeatures("tnum")
 						a.balanceCard(c)
 					})
 				})
 			})
 		})
 
-		ui.Row(c).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, "Selected: "+a.ptoDate.Format("Jan 2")).
-				FontSize(12).TextColor(ui.Hex("#a8a8a8")).FontFeatures("tnum").Grow(1)
-			ui.ButtonBase(c).Padding(6, 12).Radius(999).Border(1, ui.Hex("#2e2e2e")).
-				Disabled(true).Label("Request PTO").Children(func() {
-				ui.Text(c, "Request PTO").FontSize(12).TextColor(ui.Hex("#7a7a7a"))
+		if !a.ptoRequestOpen {
+			ui.Row(c).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, "Selected: "+a.ptoDate.Format("Jan 2")).
+					FontSize(12).TextColor(ui.Hex("#a8a8a8")).FontFeatures("tnum").Grow(1)
+				ui.ButtonBase(c).Padding(6, 12).Radius(999).Border(1, ui.Hex("#2e2e2e")).
+					OnClick(func() { a.openPTORequest() }).Label("Request PTO").Children(func() {
+					ui.Text(c, "Request PTO").FontSize(12).TextColor(ui.Hex("#e8e8e8"))
+				})
+			})
+		}
+	})
+}
+
+func (a *App) openPTORequest() {
+	a.ptoFrom, a.ptoTo = a.ptoDate, a.ptoDate
+	a.ptoJustification = "FERIE"
+	a.ptoMotivation = ""
+	a.ptoFullDay = true
+	a.ptoReview = false
+	a.ptoRequestMessage = ""
+	a.ptoRequestOpen = true
+}
+
+func (a *App) ptoRequestForm(c *ui.Context) {
+	a.card(c).Padding(12).Children(func() {
+		ui.Column(c).Gap(10).Children(func() {
+			ui.Text(c, "Request leave").FontSize(14).FontWeight(600).TextColor(ui.Hex("#f2f2f2"))
+			ui.Text(c, "Justification").FontSize(11).TextColor(ui.Hex("#a8a8a8"))
+			cb := ui.ComboboxBase(c.Key("pto-justification"), &a.ptoJustification)
+			cb.Input.Grow(1).Background(ui.Hex("#141414")).Border(1, ui.Hex("#262626")).
+				Radius(7).Padding(8, 10).TextColor(ui.Hex("#f2f2f2")).Label("Justification")
+			cb.Popup(func(panel ui.Element) {
+				panel.Padding(4).Background(ui.Hex("#1a1a1a")).Border(1, ui.Hex("#2c2c2c")).Radius(7)
+				for _, option := range []string{"CONGEDO MATRIMONIALE", "DONAZIONE SANGUE", "FERIE", "Ferie Gennaio", "Ferie Illimitate", "L104 perm mens. lavorat handicap grave", "L104 riposo gior famil handicap grave", "Riduzione orario di lavoro"} {
+					if cb.Filtering() && !strings.Contains(strings.ToLower(option), strings.ToLower(a.ptoJustification)) {
+						continue
+					}
+					item := cb.Item(option).Padding(7, 9).Radius(5)
+					if item.Highlighted() {
+						item.Background(ui.Hex("#2a2a2a"))
+					}
+					item.Children(func() { ui.Text(c, option).FontSize(12).TextColor(ui.Hex("#f2f2f2")) })
+				}
+			})
+			if chosen, ok := cb.Chosen(); ok {
+				a.ptoJustification = chosen
+			}
+
+			ui.Checkbox(c, &a.ptoFullDay, "Giornata intera")
+			ui.Row(c).Gap(8).Children(func() {
+				ui.Column(c).Gap(5).Grow(1).Children(func() {
+					ui.Text(c, "Dal").FontSize(11).TextColor(ui.Hex("#a8a8a8"))
+					ui.DateInput(c.Key("pto-from"), &a.ptoFrom).Label("From date")
+				})
+				ui.Column(c).Gap(5).Grow(1).Children(func() {
+					ui.Text(c, "Al").FontSize(11).TextColor(ui.Hex("#a8a8a8"))
+					ui.DateInput(c.Key("pto-to"), &a.ptoTo).Label("To date")
+				})
+			})
+			if !a.ptoFullDay {
+				ui.Text(c, "Part-day requests need start and end times in Zucchetti.").
+					FontSize(11).TextColor(ui.Hex("#a8a8a8"))
+			}
+			ui.Text(c, "Motivazione").FontSize(11).TextColor(ui.Hex("#a8a8a8"))
+			ui.TextAreaBase(c.Key("pto-motivation"), &a.ptoMotivation).Grow(1).MinHeight(70).
+				Background(ui.Hex("#141414")).Border(1, ui.Hex("#262626")).Radius(7).
+				Padding(8, 10).TextColor(ui.Hex("#f2f2f2")).Label("Motivation")
+			if a.ptoRequestMessage != "" {
+				color := "#ff6b81"
+				if strings.HasPrefix(a.ptoRequestMessage, "Sending") || strings.HasPrefix(a.ptoRequestMessage, "Request sent") {
+					color = "#6ea8fe"
+				}
+				ui.Text(c, a.ptoRequestMessage).FontSize(11).TextColor(ui.Hex(color))
+			}
+			if a.ptoReview {
+				ui.Text(c, fmt.Sprintf("Review: %s · %s – %s", a.ptoJustification,
+					a.ptoFrom.Format("02-01-2006"), a.ptoTo.Format("02-01-2006"))).
+					FontSize(11).TextColor(ui.Hex("#6ea8fe")).FontFeatures("tnum")
+				ui.Text(c, "Review the details before sending this request to Zucchetti.").
+					FontSize(11).TextColor(ui.Hex("#a8a8a8"))
+			}
+			ui.Row(c).Gap(8).Children(func() {
+				ui.ButtonBase(c).Padding(7, 12).Radius(999).Border(1, ui.Hex("#2e2e2e")).
+					Disabled(a.ptoSubmitting).OnClick(func() { a.ptoRequestOpen = false }).Label("Cancel").Children(func() {
+					ui.Text(c, "Cancel").FontSize(12).TextColor(ui.Hex("#e8e8e8"))
+				})
+				label := "Review request"
+				if a.ptoReview {
+					label = "Send to Zucchetti"
+				}
+				ui.ButtonBase(c).Padding(7, 12).Radius(999).Background(ui.Hex("#f5f5f5")).
+					Disabled(a.ptoSubmitting).OnClick(func() { a.reviewPTORequest() }).Label(label).Children(func() {
+					ui.Text(c, label).FontSize(12).FontWeight(600).TextColor(ui.Hex("#111111"))
+				})
 			})
 		})
 	})

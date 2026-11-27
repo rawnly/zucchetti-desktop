@@ -24,8 +24,38 @@ const portalLoginURL = "https://saas.hrzucchetti.it/hrpprogest/jsp/login.jsp"
 // or a code the portal asks for.
 var ErrPortalLogin = errors.New("could not sign in to Zucchetti: check the username and password, or the portal may be asking for a code")
 
+// PTORequest is a request to send to the Zucchetti HR portal.
+type PTORequest struct {
+	Justification string
+	From          time.Time
+	To            time.Time
+	FullDay       bool
+	Motivation    string
+}
+
+// validate reports invalid or incomplete request details before any portal interaction.
+func (r PTORequest) validate() error {
+	if !r.FullDay {
+		return errors.New("only full-day requests are supported")
+	}
+	if strings.TrimSpace(r.Justification) == "" {
+		return errors.New("choose a justification")
+	}
+	if r.From.IsZero() || r.To.IsZero() || dayOnly(r.To).Before(dayOnly(r.From)) {
+		return errors.New("enter a valid date range")
+	}
+	return nil
+}
+
+func dayOnly(d time.Time) time.Time {
+	y, m, day := d.Date()
+	return time.Date(y, m, day, 0, 0, 0, 0, d.Location())
+}
+
 // Portal reads payslips straight from the Zucchetti HR portal.
 type Portal interface {
+	// RequestPTO submits one leave request to Zucchetti.
+	RequestPTO(ctx context.Context, request PTORequest) error
 	// List returns every payslip the portal has, newest first.
 	List(ctx context.Context) ([]Payslip, error)
 	// Fetch saves payslips into dir as YYYY-MM.pdf, in one portal session.
@@ -97,6 +127,84 @@ func newWebPortal(user, pass string) Portal { return &webPortal{user: user, pass
 
 // idleClose is how long a signed-in session is kept for the next request.
 const idleClose = 90 * time.Second
+
+func (w *webPortal) RequestPTO(ctx context.Context, request PTORequest) error {
+	if err := request.validate(); err != nil {
+		return err
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.drop()
+	s, err := openPortalLoginSession(ctx, w.user, w.pass)
+	if err != nil {
+		return err
+	}
+	defer s.close()
+	return s.submitPTO(ctx, request)
+}
+
+func (s *portalSession) submitPTO(ctx context.Context, request PTORequest) error {
+	if err := request.validate(); err != nil {
+		return err
+	}
+	// HR-WorkFlow is a sibling of the payslip-document area. Find it by its
+	// visible label rather than relying on the portal's generated frame ids.
+	v, err := s.eval(ctx, `for(const d of docs()){const a=[...d.querySelectorAll('a')].filter(x=>(x.textContent||'').trim()==='HR-WorkFlow').at(-1);if(a){a.click();return true}}return false`)
+	if err != nil || v != true {
+		return errors.New("could not open HR-WorkFlow in Zucchetti")
+	}
+	if err := s.until(ctx, "the HR-WorkFlow page", `return docs().some(d=>d.querySelector('[id$="_BtnInsGiust"]'))`, 30*time.Second); err != nil {
+		return err
+	}
+	v, err = s.eval(ctx, `for(const d of docs()){const b=d.querySelector('[id$="_BtnInsGiust"]');if(b){b.click();return true}}return false`)
+	if err != nil || v != true {
+		return errors.New("could not open the leave request form")
+	}
+	if err := s.until(ctx, "the leave request form", `return docs().some(d=>[...d.querySelectorAll('select')].some(x=>[...x.options].some(o=>(o.textContent||'').trim()==='FERIE'))&&d.querySelector('textarea'))`, 10*time.Second); err != nil {
+		return err
+	}
+	from, _ := json.Marshal(request.From.Format("02-01-2006"))
+	to, _ := json.Marshal(request.To.Format("02-01-2006"))
+	motivation, _ := json.Marshal(request.Motivation)
+	justification, _ := json.Marshal(request.Justification)
+	js := fmt.Sprintf(`const from=%s,to=%s,motivation=%s,justification=%s;
+const visible=e=>!!(e&&(e.offsetWidth||e.offsetHeight));
+const set=(el,value)=>{const p=el instanceof HTMLTextAreaElement?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(p,'value').set.call(el,value);for(const t of ['input','change'])el.dispatchEvent(new Event(t,{bubbles:true}))};
+let form=null;
+for(const d of docs()){
+ const sel=[...d.querySelectorAll('select')].find(x=>[...x.options].some(o=>(o.textContent||'').trim()==='FERIE'));
+ const checks=[...d.querySelectorAll('input[type=checkbox]')].filter(visible);
+ const labeled=(el,label)=>{let n=el;for(let i=0;i<5&&n;i++,n=n.parentElement){const t=(n.innerText||'').trim();if(t.length<180&&new RegExp('\\b'+label+'\\b','i').test(t))return n}return null};
+ const dates=[...d.querySelectorAll('input:not([type=hidden]):not([type=checkbox])')].filter(visible).filter(x=>x.type==='text'||x.type==='date');
+ const fromField=dates.find(x=>labeled(x,'Dal'));
+ const toField=dates.find(x=>labeled(x,'Al'));
+ const motivationField=[...d.querySelectorAll('textarea')].find(visible);
+ const fullDay=checks.find(x=>labeled(x,'Giornata intera'));
+ if(sel&&fromField&&toField&&fullDay&&motivationField){form={d,sel,fromField,toField,fullDay,motivationField};break}
+}
+if(!form)return 'request form fields not recognized';
+const option=[...form.sel.options].find(o=>(o.textContent||'').trim()===justification);
+if(!option)return 'justification not available';
+form.sel.value=option.value;form.sel.dispatchEvent(new Event('change',{bubbles:true}));
+form.fullDay.checked=true;form.fullDay.dispatchEvent(new Event('change',{bubbles:true}));
+set(form.fromField,from);set(form.toField,to);set(form.motivationField,motivation);
+if(form.sel.options[form.sel.selectedIndex].textContent.trim()!==justification||!form.fullDay.checked||form.fromField.value!==from||form.toField.value!==to||form.motivationField.value!==motivation)return 'request details could not be verified';
+const send=[...form.d.querySelectorAll('input[type=button],button,input[type=submit]')].find(x=>((x.value||x.textContent||'').trim()==='Invia')&&visible(x));
+if(!send)return 'send button not found';
+send.click();await new Promise(resolve=>setTimeout(resolve,1500));
+const text=docs().map(d=>(d.body&&d.body.innerText)||'').join(' ').toLowerCase();
+if(/richiesta (inserita|inviata|registrata)|operazione completata/.test(text)||!visible(form.sel))return 'sent';
+return 'portal did not confirm the request'`, string(from), string(to), string(motivation), string(justification))
+	v, err = s.eval(ctx, js)
+	if err != nil {
+		return fmt.Errorf("submitting PTO request: %w", err)
+	}
+	result, _ := v.(string)
+	if result != "sent" {
+		return fmt.Errorf("could not submit PTO request: %s", result)
+	}
+	return nil
+}
 
 func (w *webPortal) List(ctx context.Context) ([]Payslip, error) {
 	w.mu.Lock()
@@ -202,7 +310,7 @@ func newGhostWindow(ctx context.Context) (*mygo.Window, error) {
 	}
 }
 
-func openPortalSession(ctx context.Context, user, pass string) (*portalSession, error) {
+func openPortalLoginSession(ctx context.Context, user, pass string) (*portalSession, error) {
 	if user == "" || pass == "" {
 		return nil, errors.New("the Zucchetti username and password are not set")
 	}
@@ -213,6 +321,14 @@ func openPortalSession(ctx context.Context, user, pass string) (*portalSession, 
 	s := &portalSession{win: win, page: win.Page(), seen: map[string]bool{}}
 	if err := s.signIn(ctx, user, pass); err != nil {
 		s.close()
+		return nil, err
+	}
+	return s, nil
+}
+
+func openPortalSession(ctx context.Context, user, pass string) (*portalSession, error) {
+	s, err := openPortalLoginSession(ctx, user, pass)
+	if err != nil {
 		return nil, err
 	}
 	if err := s.openDocuments(ctx); err != nil {

@@ -78,8 +78,17 @@ type App struct {
 	runningFetch bool
 	fetchStatus  string // e.g. "queued", "running"
 
-	// PTO calendar state (ready for future Zucchetti PTO workflow)
-	ptoDate time.Time
+	// PTO request draft.
+	ptoDate           time.Time
+	ptoFrom           time.Time
+	ptoTo             time.Time
+	ptoJustification  string
+	ptoMotivation     string
+	ptoFullDay        bool
+	ptoRequestOpen    bool
+	ptoReview         bool
+	ptoSubmitting     bool
+	ptoRequestMessage string
 
 	// Inline settings draft fields
 	draftSource     int // 0: portal, 1: worker
@@ -96,6 +105,7 @@ type App struct {
 	settingsDirty   bool
 
 	// Optional hook overrides for headless view tests (if non-nil, invoked instead of real async methods)
+	onSubmitPTO      func(PTORequest)
 	onRefresh        func()
 	onDownload       func(p Payslip)
 	onDownloadAll    func()

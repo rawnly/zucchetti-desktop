@@ -247,6 +247,71 @@ func (a *App) DownloadAll() {
 	}()
 }
 
+// reviewPTORequest validates a draft before asking the user to confirm the final submission.
+func (a *App) reviewPTORequest() {
+	if !a.ptoReview {
+		request := a.ptoRequest()
+		if err := request.validate(); err != nil {
+			a.ptoRequestMessage = err.Error()
+			return
+		}
+		if !request.FullDay {
+			a.ptoRequestMessage = "Only full-day requests are supported"
+			return
+		}
+		if !a.usesPortal() || !a.IsConfigured() {
+			a.ptoRequestMessage = "Configure the Zucchetti portal source to request leave"
+			return
+		}
+		a.ptoRequestMessage = ""
+		a.ptoReview = true
+		return
+	}
+	a.submitPTORequest()
+}
+
+func (a *App) ptoRequest() PTORequest {
+	return PTORequest{
+		Justification: a.ptoJustification,
+		From:          a.ptoFrom,
+		To:            a.ptoTo,
+		FullDay:       a.ptoFullDay,
+		Motivation:    a.ptoMotivation,
+	}
+}
+
+func (a *App) submitPTORequest() {
+	request := a.ptoRequest()
+	if a.onSubmitPTO != nil {
+		a.onSubmitPTO(request)
+		return
+	}
+	if a.ptoSubmitting || !a.usesPortal() || !a.IsConfigured() || a.quitting {
+		return
+	}
+	a.ptoSubmitting = true
+	a.ptoRequestMessage = "Sending request to Zucchetti…"
+	a.Invalidate()
+	portal := a.portal()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer cancel()
+		err := portal.RequestPTO(ctx, request)
+		a.dispatch(func() {
+			a.ptoSubmitting = false
+			a.ptoReview = false
+			if err != nil {
+				a.ptoRequestMessage = err.Error()
+			} else {
+				a.ptoRequestMessage = "Request sent to Zucchetti"
+				a.ptoRequestOpen = false
+				a.SetNotice(a.ptoRequestMessage, false)
+			}
+			a.Invalidate()
+		})
+	}()
+}
+
 // TriggerFetch asks the worker to scrape the current month, then follows the
 // workflow run until it reaches a final state.
 func (a *App) TriggerFetch() {

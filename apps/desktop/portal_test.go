@@ -12,6 +12,26 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+func TestPTORequestValidation(t *testing.T) {
+	from := time.Date(2026, 12, 24, 0, 0, 0, 0, time.Local)
+	valid := PTORequest{Justification: "FERIE", From: from, To: from.AddDate(0, 0, 2), FullDay: true}
+	if err := valid.validate(); err != nil {
+		t.Fatalf("valid request: %v", err)
+	}
+	for name, request := range map[string]PTORequest{
+		"missing category": {From: from, To: from, FullDay: true},
+		"missing date":     {Justification: "FERIE", To: from, FullDay: true},
+		"reversed dates":   {Justification: "FERIE", From: from, To: from.AddDate(0, 0, -1), FullDay: true},
+		"part day":         {Justification: "FERIE", From: from, To: from, FullDay: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := request.validate(); err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
+	}
+}
+
 func TestParsePortalRows(t *testing.T) {
 	// Row texts as the portal gives them, with invented ids.
 	rows := []string{
@@ -61,12 +81,21 @@ func TestParsePortalRows(t *testing.T) {
 
 // fakePortal serves a fixed list and writes small PDFs, like webPortal would.
 type fakePortal struct {
-	mu      sync.Mutex
-	items   []Payslip
-	listErr error
-	failOn  map[string]error
-	lists   int
-	fetched []string
+	mu         sync.Mutex
+	items      []Payslip
+	listErr    error
+	failOn     map[string]error
+	lists      int
+	fetched    []string
+	requests   []PTORequest
+	requestErr error
+}
+
+func (f *fakePortal) RequestPTO(ctx context.Context, request PTORequest) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.requests = append(f.requests, request)
+	return f.requestErr
 }
 
 func (f *fakePortal) List(ctx context.Context) ([]Payslip, error) {
@@ -122,6 +151,35 @@ func samplePayslips() []Payslip {
 		{Key: "busta-2026-11.pdf", Year: 2026, Month: 11},
 		{Key: "busta-2026-10.pdf", Year: 2026, Month: 10},
 		{Key: "busta-2025-12.pdf", Year: 2025, Month: 12},
+	}
+}
+
+func TestConfirmedPTORequestUsesPortal(t *testing.T) {
+	f := &fakePortal{}
+	app, main := portalApp(t, f)
+	app.ptoJustification = "FERIE"
+	app.ptoFullDay = true
+	app.ptoFrom = time.Date(2026, 12, 24, 0, 0, 0, 0, time.Local)
+	app.ptoTo = app.ptoFrom.AddDate(0, 0, 1)
+
+	main.Lock()
+	app.reviewPTORequest()
+	main.Unlock()
+	if !app.ptoReview {
+		t.Fatal("first action should only open the review step")
+	}
+	main.Lock()
+	app.reviewPTORequest()
+	main.Unlock()
+	waitFor(t, main, "PTO request submission", func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return len(f.requests) == 1
+	})
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.requests[0].Justification != "FERIE" || !f.requests[0].FullDay {
+		t.Fatalf("request = %+v", f.requests[0])
 	}
 }
 

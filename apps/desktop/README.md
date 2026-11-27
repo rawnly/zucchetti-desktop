@@ -16,7 +16,7 @@ Pick the source in Settings. Everything else works the same with both.
 - **Fetch latest** — with the portal, lists it and saves the newest payslip if you don't have it. With the worker, starts a worker run for the current month and follows it.
 - **Background check** — while the app is running, checks on launch, every six hours, when the Mac wakes, and when the network returns. The payslip list is cached in `payslips-cache.json` so it appears immediately at startup; newly listed payslips are downloaded automatically, with a notification.
 - **Read the PDF** — saved payslips are parsed on your machine. A row shows the net pay and the period printed in the PDF, and the PTO tab shows the leave left (vacation, PAR and ex-holiday hours) from the newest payslip. The **Trends** tab charts monthly take-home pay and remaining leave hours from locally saved PDFs; missing or mismatched periods are shown as gaps. A balance is only shown if its numbers add up. If the period in a PDF is not the month of its file name, the row turns red.
-- **PTO** — a calendar tab, reserved for tracking and requesting leave. Requests are not built yet.
+- **PTO** — use the calendar to choose a date, then prepare a full-day leave request with its justification, date range, and motivation. Review the details before sending the request directly to Zucchetti. PTO requests require the portal source; the worker has no request API.
 
 Payslip PDFs and the list cache stay on your Mac. The app talks either to the Zucchetti portal or to your worker; it does not upload PDFs or extracted text.
 

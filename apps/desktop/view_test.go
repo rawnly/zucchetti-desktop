@@ -199,11 +199,55 @@ func TestPTOTab(t *testing.T) {
 	if app.tab != TabPTO {
 		t.Fatalf("expected tab %d, got %d", TabPTO, app.tab)
 	}
-	if !tt.HasText("Requests soon") {
-		t.Fatal("expected PTO coming soon pill")
-	}
 	if !tt.HasText("Request PTO") {
 		t.Fatal("expected Request PTO button")
+	}
+	if err := tt.Click("Request PTO"); err != nil {
+		t.Fatalf("open PTO request: %v", err)
+	}
+	tt.Frame()
+	if !tt.HasText("Request leave") || !tt.HasText("Giornata intera") || !tt.HasText("Motivazione") {
+		t.Fatalf("request form did not render: %v", tt.Texts())
+	}
+}
+
+func TestPTORequestRequiresReviewBeforeSubmit(t *testing.T) {
+	app := newTestApp(t)
+	app.cfg.Source = SourcePortal
+	app.portalUser, app.portalPass = "user", "pass"
+	from := time.Date(2026, 12, 24, 0, 0, 0, 0, time.Local)
+	app.ptoDate, app.ptoFrom, app.ptoTo = from, from, from.AddDate(0, 0, 1)
+	var submitted PTORequest
+	app.onSubmitPTO = func(request PTORequest) { submitted = request }
+
+	tt := ui.NewTester(app.view, 368, 488)
+	tt.Frame()
+	if err := tt.Click("PTO"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if err := tt.Click("Request PTO"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	app.ptoTo = from.AddDate(0, 0, 1)
+	tt.Frame()
+	if err := tt.Click("Review request"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !tt.HasText("Review the details before sending this request to Zucchetti.") {
+		t.Fatal("expected explicit review before submission")
+	}
+	if submitted.Justification != "" {
+		t.Fatal("submitted before the final confirmation")
+	}
+	if err := tt.Click("Send to Zucchetti"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if submitted.Justification != "FERIE" || !submitted.FullDay || !submitted.From.Equal(from) || !submitted.To.Equal(from.AddDate(0, 0, 1)) {
+		t.Fatalf("submitted request = %+v", submitted)
 	}
 }
 
