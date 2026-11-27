@@ -1,0 +1,9 @@
+node_modules/
+vendor/
+.alchemy/
+.mygo/
+build/
+.env
+*.local.*
+*.log
+.DS_Store

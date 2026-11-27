@@ -1,0 +1,10 @@
+{
+  "name": "Zucchetti",
+  "slug": "zucchetti",
+  "identifier": "dev.fedevitale.zucchetti",
+  "version": "0.1.0",
+  "out": "build",
+  "macos": {
+    "minimumSystemVersion": "13.0"
+  }
+}

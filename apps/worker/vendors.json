@@ -1,0 +1,14 @@
+{
+  "defaultMode": "copy",
+  "vendors": {
+    "alchemy-repo": {
+      "repo": "https://github.com/alchemy-run/alchemy",
+      "ref": "v2.0.0-beta.87"
+    },
+    "effect": {
+      "repo": "https://github.com/Effect-TS/effect",
+      "ref": "effect@4.1.4",
+      "subdir": "packages/effect"
+    }
+  }
+}
