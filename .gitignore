@@ -7,3 +7,4 @@ build/
 *.local.*
 *.log
 .DS_Store
+/apps/desktop/zucchetti-desktop
